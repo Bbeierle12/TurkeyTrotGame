@@ -20,23 +20,23 @@ import * as Tone from 'tone';
 // WEAPON DEFINITIONS
 // =========================
 const WeaponTypes = {
-  PITCHFORK: { 
-    name: 'Pitchfork Launcher', icon: '🔱', damage: 28, fireRate: 2.2, speed: 32, 
+  PITCHFORK: {
+    name: 'Pitchfork Launcher', icon: '🔱', damage: 28, fireRate: 2.2, speed: 32,
     pierce: 2, splash: 0, slow: 0, color: 0x666666, sound: 'pitchfork',
     description: 'Fast firing, pierces enemies'
   },
-  CORN_CANNON: { 
-    name: 'Corn Cannon', icon: '🌽', damage: 45, fireRate: 0.9, speed: 26, 
+  CORN_CANNON: {
+    name: 'Corn Cannon', icon: '🌽', damage: 45, fireRate: 0.9, speed: 26,
     pierce: 0, splash: 3.2, slow: 0, color: 0xffd700, sound: 'cannon',
     description: 'Explosive splash damage'
   },
-  EGG_BLASTER: { 
-    name: 'Egg Blaster', icon: '🥚', damage: 12, fireRate: 5.5, speed: 38, 
+  EGG_BLASTER: {
+    name: 'Egg Blaster', icon: '🥚', damage: 12, fireRate: 5.5, speed: 38,
     pierce: 0, splash: 0, slow: 0.45, color: 0xfffef0, sound: 'egg',
     description: 'Rapid fire, slows enemies'
   },
-  PUMPKIN_MORTAR: { 
-    name: 'Pumpkin Mortar', icon: '🎃', damage: 90, fireRate: 0.35, speed: 14, 
+  PUMPKIN_MORTAR: {
+    name: 'Pumpkin Mortar', icon: '🎃', damage: 90, fireRate: 0.35, speed: 14,
     pierce: 0, splash: 5.5, slow: 0, color: 0xff6600, arc: true, sound: 'mortar',
     description: 'High damage artillery'
   }
@@ -58,18 +58,18 @@ const TurkeyTypes = {
 // TURRET DEFINITIONS
 // =========================
 const TurretTypes = {
-  BASIC: { 
-    name: 'Scarecrow Turret', icon: '🧑‍🌾', cost: 100, 
+  BASIC: {
+    name: 'Scarecrow Turret', icon: '🧑‍🌾', cost: 100,
     damage: 15, fireRate: 1.5, range: 8, color: 0xdaa520,
     description: 'Basic auto-targeting turret'
   },
-  SLOW: { 
-    name: 'Frost Sprinkler', icon: '❄️', cost: 150, 
+  SLOW: {
+    name: 'Frost Sprinkler', icon: '❄️', cost: 150,
     damage: 5, fireRate: 2.0, range: 6, slow: 0.5, slowDuration: 2, color: 0x88ccff,
     description: 'Slows enemies in range'
   },
-  EXPLOSIVE: { 
-    name: 'Corn Silo', icon: '🌾', cost: 200, 
+  EXPLOSIVE: {
+    name: 'Corn Silo', icon: '🌾', cost: 200,
     damage: 40, fireRate: 0.5, range: 10, splash: 3, color: 0xffd700,
     description: 'Explosive area damage'
   }
@@ -180,22 +180,22 @@ class AudioManager {
       }
     }, '4n');
   }
-  
+
   startMusic() { if (!this.initialized || this.musicPlaying) return; this.musicPlaying = true; Tone.Transport.bpm.value = 100; Tone.Transport.start(); this.musicLoop.start(0); }
   stopMusic() { this.musicPlaying = false; this.musicLoop?.stop(); }
 
   playSound(type, options = {}) {
     if (!this.initialized || this.muted) return;
-    
+
     // Throttle sounds to prevent rapid-fire errors
     const now = Tone.now();
     const lastTime = this.lastPlayTime[type] || 0;
     if (now - lastTime < this.minInterval) return;
     this.lastPlayTime[type] = now;
-    
+
     try {
       const t = now + 0.01; // Small offset to ensure valid timing
-      switch(type) {
+      switch (type) {
         case 'pitchfork': this.synths.pitchfork.triggerAttackRelease('C3', '16n', t); break;
         case 'cannon': this.synths.cannon.triggerAttackRelease('C1', '8n', t); break;
         case 'egg': this.synths.egg.triggerAttackRelease('E5', '32n', t); break;
@@ -271,20 +271,30 @@ export default function TurkeyTrotDefensePhase5() {
   const [gameMode, setGameMode] = useState('normal'); // 'normal' or 'endless'
   const [endlessMode, setEndlessMode] = useState(false);
   const [turretMenuOpen, setTurretMenuOpen] = useState(false);
-  
+
   // Persistent stats for achievements
   const [playerStats, setPlayerStats] = useState({
     totalKills: 0, bossKills: 0, highestWave: 0, maxCurrency: 0,
     turretsPlaced: 0, abilitiesUsed: 0, clutchWins: 0, fastWave10: false,
     endlessHighWave: 0, perfectWaves: 0, gamesPlayed: 0
   });
-  
+
   // Settings
   const [settings, setSettings] = useState({
     masterVolume: 0.7, sfxVolume: 0.8, musicVolume: 0.5,
     muted: false, showFps: false, showMinimap: true
   });
-  
+
+  const [cameraMode, setCameraMode] = useState('ISOMETRIC'); // ISOMETRIC, TOPDOWN, FIRST_PERSON
+  const cameraModeRef = useRef('ISOMETRIC');
+  const [zoom, setZoom] = useState(1.0);
+  const zoomRef = useRef(1.0);
+  const cameraAngleRef = useRef(0); // Rotation angle in radians
+  const panOffsetRef = useRef(new THREE.Vector3()); // Manual camera pan offset
+
+  useEffect(() => { cameraModeRef.current = cameraMode; }, [cameraMode]);
+
+
   // Upgrades
   const [upgrades, setUpgrades] = useState({
     barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0
@@ -368,16 +378,16 @@ export default function TurkeyTrotDefensePhase5() {
     const ability = AbilityTypes[abilityKey];
     const state = stateRef.current;
     if (!state || abilities[abilityKey].cooldown > 0) return;
-    
+
     audioManager.playSound('ability');
     updatePlayerStats({ abilitiesUsed: playerStats.abilitiesUsed + 1 });
-    
+
     setAbilities(prev => ({
       ...prev,
       [abilityKey]: { ...prev[abilityKey], cooldown: ability.cooldown, active: ability.duration > 0, remaining: ability.duration }
     }));
-    
-    switch(abilityKey) {
+
+    switch (abilityKey) {
       case 'AIRSTRIKE':
         if (state.aim) {
           state.pendingAirstrike = state.aim.clone();
@@ -408,7 +418,11 @@ export default function TurkeyTrotDefensePhase5() {
     const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 200);
     camera.position.set(0, 32, 40);
     camera.lookAt(0, 0, 0);
-    const baseCamPos = camera.position.clone();
+    const baseCamPos = new THREE.Vector3(0, 32, 40);
+    const topDownPos = new THREE.Vector3(0, 60, 0);
+
+    // Camera offsets for smooth following
+    const cameraOffset = new THREE.Vector3();
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -572,21 +586,21 @@ export default function TurkeyTrotDefensePhase5() {
       const stats = TurkeyTypes[type];
       const g = new THREE.Group();
       const s = scale || stats.scale;
-      
+
       const bodyGeo = new THREE.SphereGeometry(0.5, 14, 10);
       bodyGeo.scale(1.1, 0.85, 1.2);
       const bodyMesh = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.9 }));
       bodyMesh.position.y = 0.5; bodyMesh.scale.setScalar(s); bodyMesh.castShadow = true;
       g.add(bodyMesh);
-      
+
       const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), new THREE.MeshStandardMaterial({ color: stats.head, roughness: 0.6 }));
       headMesh.position.set(0, 0.7, 0.45); headMesh.scale.setScalar(s);
       g.add(headMesh);
-      
+
       const beak = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.15, 6), new THREE.MeshStandardMaterial({ color: 0xffa500 }));
       beak.position.set(0, 0.68, 0.65); beak.rotation.x = Math.PI / 2; beak.scale.setScalar(s);
       g.add(beak);
-      
+
       const tailGroup = new THREE.Group();
       for (let i = 0; i < 7; i++) {
         const feather = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.4), new THREE.MeshStandardMaterial({ color: i % 2 ? stats.body : 0x654321, side: THREE.DoubleSide, roughness: 0.95 }));
@@ -595,7 +609,7 @@ export default function TurkeyTrotDefensePhase5() {
       }
       tailGroup.scale.setScalar(s);
       g.add(tailGroup);
-      
+
       // Type-specific visuals
       if (type === 'TANK') {
         const armor = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.35, 0.7), new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.4 }));
@@ -620,12 +634,12 @@ export default function TurkeyTrotDefensePhase5() {
           lens.position.set(x * s, 0.75 * s, 0.48 * s); g.add(lens);
         });
       }
-      
+
       g.position.copy(pos);
       scene.add(g);
-      
+
       if (Math.random() < 0.3) setTimeout(() => audioManager.playSound('gobble'), Math.random() * 1000);
-      
+
       return {
         mesh: g, body: bodyMesh, tail: tailGroup, pos: pos.clone(),
         hp: stats.hp * (scale ? scale / stats.scale : 1), maxHp: stats.hp * (scale ? scale / stats.scale : 1),
@@ -639,13 +653,13 @@ export default function TurkeyTrotDefensePhase5() {
     const createTurretMesh = (pos, type) => {
       const stats = TurretTypes[type];
       const g = new THREE.Group();
-      
+
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 0.3, 12), new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 }));
       base.position.y = 0.15; base.castShadow = true; g.add(base);
-      
+
       const body = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 0.8, 10), new THREE.MeshStandardMaterial({ color: stats.color, roughness: 0.7 }));
       body.position.y = 0.7; body.castShadow = true; g.add(body);
-      
+
       if (type === 'BASIC') {
         // Scarecrow head
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 10, 8), new THREE.MeshStandardMaterial({ color: 0xdaa520, roughness: 0.95 }));
@@ -661,15 +675,15 @@ export default function TurkeyTrotDefensePhase5() {
         const dome = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.7 }));
         dome.position.y = 1.1; g.add(dome);
       }
-      
+
       // Range indicator (hidden by default)
       const range = new THREE.Mesh(new THREE.RingGeometry(0, stats.range, 32), new THREE.MeshBasicMaterial({ color: stats.color, transparent: true, opacity: 0.1, side: THREE.DoubleSide }));
       range.rotation.x = -Math.PI / 2; range.position.y = 0.02; range.visible = false;
       g.add(range);
-      
+
       g.position.copy(pos);
       scene.add(g);
-      
+
       return {
         mesh: g, range, pos: pos.clone(), type,
         damage: stats.damage, fireRate: stats.fireRate, turretRange: stats.range,
@@ -684,7 +698,7 @@ export default function TurkeyTrotDefensePhase5() {
       const damageBonus = fromTurret ? 1 : (1 + (state.upgrades?.weaponDamage || 0) * 0.15);
       const rageBonus = fromTurret ? 1 : (state.rageActive > 0 ? AbilityTypes.RAGE.damageMultiplier : 1);
       const finalDamage = (fromTurret ? wp.damage : wp.damage) * damageBonus * rageBonus;
-      
+
       let geo;
       if (fromTurret) {
         geo = new THREE.SphereGeometry(0.12, 8, 6);
@@ -697,11 +711,11 @@ export default function TurkeyTrotDefensePhase5() {
       } else {
         geo = new THREE.SphereGeometry(0.22, 12, 10);
       }
-      
+
       const color = fromTurret ? wp.color : wp.color;
       const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.4, emissive: color, emissiveIntensity: 0.15 });
       const m = new THREE.Mesh(geo, mat);
-      
+
       if (fromTurret) {
         m.position.copy(dir.origin);
         m.position.y = 1.2;
@@ -712,16 +726,16 @@ export default function TurkeyTrotDefensePhase5() {
       }
       m.castShadow = true;
       scene.add(m);
-      
+
       if (!fromTurret) {
         emitParticles(m.position.clone(), 5, 0xffffaa, { x: 2, y: 2, z: 2 }, 0.15);
         audioManager.playSound(wp.sound);
       } else {
         audioManager.playSound('turret');
       }
-      
+
       const vel = fromTurret ? dir.direction.clone().multiplyScalar(25) : dir.clone().multiplyScalar(wp.speed);
-      
+
       return {
         mesh: m, vel, dmg: finalDamage, life: 0, hits: new Set(),
         pierce: fromTurret ? 0 : (wp.pierce || 0),
@@ -738,7 +752,7 @@ export default function TurkeyTrotDefensePhase5() {
       emitParticles(pos.clone(), 25, 0xff6600, { x: radius * 3, y: radius * 4, z: radius * 3 }, 0.6);
       emitParticles(pos.clone(), 15, 0xffff00, { x: radius * 2, y: radius * 5, z: radius * 2 }, 0.4);
       emitParticles(pos.clone().setY(pos.y + 0.5), 10, 0x333333, { x: radius, y: 2, z: radius }, 1.2);
-      
+
       const ringGeo = new THREE.RingGeometry(0.2, 0.4, 24);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
       const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -753,11 +767,11 @@ export default function TurkeyTrotDefensePhase5() {
         requestAnimationFrame(animateRing);
       };
       animateRing();
-      
+
       audioManager.playSound('explosion');
       state.shakeIntensity = Math.min(radius / 4, 1);
       state.shakeDuration = 0.35;
-      
+
       // Deal damage if specified (for airstrike)
       if (damage > 0) {
         state.turkeys.forEach(tk => {
@@ -774,69 +788,69 @@ export default function TurkeyTrotDefensePhase5() {
     // Wave composition - Improved progression system
     const getWaveComposition = (wave, endless) => {
       const mult = endless ? 1.3 : 1;
-      
+
       // Wave rhythm: boss waves are climactic, post-boss waves are breathers
       const isBossWave = wave >= 5 && wave % 5 === 0;
       const isBreatherWave = wave > 5 && wave % 5 === 1; // Waves 6,11,16... (after boss)
       const isBuildupWave = wave % 5 === 4; // Waves 4,9,14... (before boss)
-      
+
       // Rhythm multiplier affects total enemy count
       let rhythmMult = 1.0;
       if (isBossWave) rhythmMult = 0.6; // Fewer trash mobs during boss
       else if (isBreatherWave) rhythmMult = 0.7; // Recovery wave
       else if (isBuildupWave) rhythmMult = 1.2; // Tension before boss
-      
+
       // Standard turkeys: smooth scaling with wave
       const baseStandard = Math.max(3, Math.round((3 + wave * 0.8) * mult * rhythmMult));
-      
-      const comp = { 
-        STANDARD: baseStandard, 
-        RUNNER: 0, 
-        TANK: 0, 
-        HEALER: 0, 
-        SPLITTER: 0, 
-        BOSS: 0 
+
+      const comp = {
+        STANDARD: baseStandard,
+        RUNNER: 0,
+        TANK: 0,
+        HEALER: 0,
+        SPLITTER: 0,
+        BOSS: 0
       };
-      
+
       // Runners: Appear wave 3, scale quickly (fast but weak)
       if (wave >= 3) {
         const runnerBase = Math.round(1 + (wave - 3) * 0.5);
         const cap = endless ? 8 + Math.floor(wave * 0.15) : 6;
         comp.RUNNER = Math.round(Math.min(runnerBase, cap) * mult * rhythmMult);
       }
-      
+
       // Tanks: Appear wave 5, scale slowly (tough enemies)
       if (wave >= 5) {
         const tankBase = Math.round(1 + (wave - 5) * 0.3);
         const cap = endless ? 5 + Math.floor(wave * 0.1) : 4;
         comp.TANK = Math.round(Math.min(tankBase, cap) * mult * rhythmMult);
       }
-      
+
       // Healers: Appear wave 7, strategic threat
       if (wave >= 7) {
         const healerBase = Math.round(1 + (wave - 7) * 0.25);
         const cap = endless ? 4 + Math.floor(wave * 0.08) : 3;
         comp.HEALER = Math.round(Math.min(healerBase, cap) * mult * rhythmMult);
       }
-      
+
       // Splitters: Appear wave 9, scale moderately
       if (wave >= 9) {
         const splitterBase = Math.round(1 + (wave - 9) * 0.2);
         const cap = endless ? 4 + Math.floor(wave * 0.08) : 3;
         comp.SPLITTER = Math.round(Math.min(splitterBase, cap) * mult * rhythmMult);
       }
-      
+
       // Bosses: Every 5 waves starting at 5
       if (isBossWave) {
         comp.BOSS = endless ? Math.floor(wave / 10) + 1 : 1;
       }
-      
+
       // Ensure at least 1 of new enemy type on introduction wave
       if (wave === 3) comp.RUNNER = Math.max(comp.RUNNER, 2);
       if (wave === 5) comp.TANK = Math.max(comp.TANK, 1);
       if (wave === 7) comp.HEALER = Math.max(comp.HEALER, 1);
       if (wave === 9) comp.SPLITTER = Math.max(comp.SPLITTER, 1);
-      
+
       return comp;
     };
 
@@ -850,9 +864,9 @@ export default function TurkeyTrotDefensePhase5() {
 
     // Input
     const onKey = (e, down) => {
-      const map = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', ArrowUp: 'w', ArrowLeft: 'a', ArrowDown: 's', ArrowRight: 'd' };
+      const map = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', ArrowUp: 'panUp', ArrowDown: 'panDown', ArrowLeft: 'panLeft', ArrowRight: 'panRight' };
       if (map[e.code]) state.input[map[e.code]] = down;
-      
+
       if (down) {
         const weaponKeys = Object.keys(WeaponTypes);
         if (e.code === 'Digit1' || e.code === 'Numpad1') { state.currentWeapon = weaponKeys[0]; setWeapon(WeaponTypes[weaponKeys[0]]); audioManager.playSound('click'); }
@@ -883,6 +897,21 @@ export default function TurkeyTrotDefensePhase5() {
           else { setPaused(p => !p); state.paused = !state.paused; }
           audioManager.playSound('click');
         }
+
+        // Camera Controls
+        if (e.code === 'KeyC') {
+          const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
+          const nextMode = modes[(modes.indexOf(cameraModeRef.current) + 1) % modes.length];
+          setCameraMode(nextMode);
+          audioManager.playSound('click');
+        }
+
+        // Manual Rotation
+        if (e.code === 'Comma') { cameraAngleRef.current += Math.PI / 4; audioManager.playSound('click'); }
+        if (e.code === 'Period') { cameraAngleRef.current -= Math.PI / 4; audioManager.playSound('click'); }
+
+        // Pan Reset
+        if (e.code === 'KeyZ') { panOffsetRef.current.set(0, 0, 0); cameraAngleRef.current = 0; audioManager.playSound('click'); }
       }
     };
     const handleKeyDown = e => onKey(e, true);
@@ -925,6 +954,16 @@ export default function TurkeyTrotDefensePhase5() {
       }
     });
     renderer.domElement.addEventListener('mouseup', e => { if (e.button === 0) state.input.firing = false; });
+
+    // Zoom control
+    renderer.domElement.addEventListener('wheel', e => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.1 : -0.1;
+      const newZoom = Math.max(0.5, Math.min(2.0, zoomRef.current + delta));
+      setZoom(newZoom);
+      zoomRef.current = newZoom;
+    }, { passive: false });
+
     renderer.domElement.addEventListener('mousemove', e => {
       const rect = renderer.domElement.getBoundingClientRect();
       const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
@@ -971,7 +1010,7 @@ export default function TurkeyTrotDefensePhase5() {
       if (idx < 0 || idx >= state.turkeys.length) return;
       const t = state.turkeys[idx];
       if (!t || !t.mesh) return;
-      
+
       // Splitter spawns mini turkeys
       if (t.type === 'SPLITTER' && !t.isSplit && t.scale > 0.5) {
         for (let i = 0; i < 2; i++) {
@@ -982,16 +1021,16 @@ export default function TurkeyTrotDefensePhase5() {
           state.turkeys.push(mini);
         }
       }
-      
+
       emitParticles(t.pos.clone().setY(0.6 * t.scale), 20, TurkeyTypes[t.type].body, { x: 3, y: 5, z: 3 }, 0.9);
       emitParticles(t.pos.clone().setY(0.6 * t.scale), 8, 0xdc143c, { x: 2, y: 3, z: 2 }, 0.6);
       scene.remove(t.mesh);
       t.mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
       state.turkeys.splice(idx, 1);
-      
+
       updatePlayerStats({ totalKills: playerStats.totalKills + 1 });
       if (t.type === 'BOSS') updatePlayerStats({ bossKills: playerStats.bossKills + 1 });
-      
+
       audioManager.playSound('kill');
     };
 
@@ -1003,13 +1042,44 @@ export default function TurkeyTrotDefensePhase5() {
     // Main loop
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      
+
       frameCount++;
       const now = performance.now();
       if (now - lastFpsUpdate >= 1000) { setFps(frameCount); frameCount = 0; lastFpsUpdate = now; }
-      
+
       const dt = Math.min(clock.getDelta(), 0.1);
       const t = clock.getElapsedTime();
+
+      // Player Movement
+      const mv = new THREE.Vector3();
+      if (state.input.w) mv.z -= 1;
+      if (state.input.s) mv.z += 1;
+      if (state.input.a) mv.x -= 1;
+      if (state.input.d) mv.x += 1;
+
+      if (mv.lengthSq() > 0) {
+        mv.normalize().multiplyScalar(6.5 * dt);
+
+        if (cameraModeRef.current === 'FIRST_PERSON') {
+          // Move relative to player rotation
+          mv.applyAxisAngle(new THREE.Vector3(0, 1, 0), state.player.rot);
+        }
+
+        state.player.pos.add(mv);
+        state.player.pos.x = Math.max(-45, Math.min(45, state.player.pos.x));
+        state.player.pos.z = Math.max(-45, Math.min(45, state.player.pos.z));
+        playerGroup.position.copy(state.player.pos);
+
+        // Bobbing
+        playerGroup.position.y = Math.abs(Math.sin(t * 12)) * 0.05;
+      }
+
+      // Player Rotation (Aiming)
+      const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).setY(0);
+      if (dir.lengthSq() > 0.01) {
+        state.player.rot = Math.atan2(dir.x, dir.z);
+        playerGroup.rotation.y = state.player.rot;
+      }
 
       // Update leaves
       const leafPos = leafGeo.attributes.position.array;
@@ -1047,10 +1117,187 @@ export default function TurkeyTrotDefensePhase5() {
       // Screen shake
       if (state.shakeDuration > 0) {
         state.shakeDuration -= dt;
-        const shake = state.shakeIntensity * (state.shakeDuration > 0 ? 1 : 0);
-        camera.position.set(baseCamPos.x + (Math.random() - 0.5) * shake, baseCamPos.y + (Math.random() - 0.5) * shake * 0.5, baseCamPos.z + (Math.random() - 0.5) * shake * 0.3);
+        // Camera shake handled in camera logic
+      }
+
+      // Spawning
+      if (state.toSpawn > 0 && !state.gameOver && !state.paused) {
+        state.spawnTimer -= dt;
+        if (state.spawnTimer <= 0) {
+          const type = getNextSpawnType(state.waveComp);
+          if (type) {
+            spawnedCounts[type]++;
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 45 + Math.random() * 10;
+            const pos = new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+            const turkey = createTurkey(pos, type);
+            state.turkeys.push(turkey);
+            state.toSpawn--;
+
+            // Spawn delay based on wave density
+            const baseDelay = Math.max(0.5, 2.5 - state.wave * 0.15);
+            state.spawnTimer = baseDelay * (0.8 + Math.random() * 0.4);
+          }
+        }
+      }
+
+      // Update Turkeys
+      for (const tk of state.turkeys) {
+        if (tk.dead) continue;
+
+        // Move towards barn
+        const dir = new THREE.Vector3().subVectors(state.barn.pos, tk.pos).normalize();
+        let speed = tk.speed * (tk.slowMult || 1);
+        if (tk.slowTimer > 0) {
+          tk.slowTimer -= dt;
+          if (tk.slowTimer <= 0) tk.slowMult = 1;
+        }
+
+        // Freeze logic
+        if (state.globalFreeze > 0) {
+          state.globalFreeze -= dt;
+          speed = 0;
+        }
+
+        tk.pos.add(dir.multiplyScalar(speed * dt));
+        tk.mesh.position.copy(tk.pos);
+        tk.mesh.lookAt(state.barn.pos);
+
+        // Bobbing animation
+        tk.mesh.position.y = Math.abs(Math.sin(t * 10)) * 0.5;
+
+        // Barn collision
+        const distToBarn = tk.pos.length();
+        if (distToBarn < 3) {
+          state.barn.health -= tk.dmg * (1 - (state.upgrades?.barnArmor || 0) * 0.1);
+          audioManager.playSound('hurt');
+          removeTurkey(state.turkeys.indexOf(tk));
+          emitParticles(tk.pos.clone(), 10, 0xff0000, { x: 2, y: 4, z: 2 }, 0.5);
+
+          if (state.barn.health <= 0) {
+            state.barn.health = 0;
+            setGameOver(true);
+            state.gameOver = true;
+            audioManager.playSound('gameover');
+          }
+        }
+      }
+
+      // Player Shooting
+      if (state.shootTimer > 0) state.shootTimer -= dt;
+      if (state.input.firing && state.shootTimer <= 0 && !state.gameOver && !state.paused) {
+        const weapon = WeaponTypes[state.currentWeapon];
+        const rate = weapon.rate * (1 - (state.upgrades?.fireRate || 0) * 0.1);
+        state.shootTimer = rate;
+
+        // Calculate spread/direction
+        const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).setY(0).normalize();
+
+        // Multiple projectiles for shotgun/special
+        const count = weapon.count || 1;
+        const spread = weapon.spread || 0;
+
+        for (let i = 0; i < count; i++) {
+          const spreadAngle = (Math.random() - 0.5) * spread;
+          const pDir = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), spreadAngle);
+          const proj = createProjectile(pDir, state.currentWeapon);
+          state.projectiles.push(proj);
+        }
+
+        // Recoil/Screen shake
+        state.shakeIntensity = 0.2;
+        state.shakeDuration = 0.1;
+      }
+
+      // Turrets
+      state.turrets.forEach(turret => {
+        if (turret.cooldown > 0) turret.cooldown -= dt;
+
+        let target = null;
+        let minDist = TurretTypes[turret.type].range;
+
+        for (const tk of state.turkeys) {
+          if (tk.dead) continue;
+          const dist = tk.pos.distanceTo(turret.mesh.position);
+          if (dist < minDist) {
+            minDist = dist;
+            target = tk;
+          }
+        }
+
+        if (target) {
+          turret.mesh.lookAt(target.pos);
+          if (turret.cooldown <= 0) {
+            turret.cooldown = TurretTypes[turret.type].fireRate;
+            const dir = new THREE.Vector3().subVectors(target.pos, turret.mesh.position).normalize();
+            const proj = createProjectile({ origin: turret.mesh.position.clone(), direction: dir }, turret.type, true);
+            state.turretProjectiles.push(proj);
+          }
+        }
+      });
+
+      // Camera Logic
+      const mode = cameraModeRef.current;
+      const z = zoomRef.current;
+      const angle = cameraAngleRef.current;
+      const pan = panOffsetRef.current;
+
+      // Handle Panning (Arrow Keys)
+      const panSpeed = 20 * dt;
+      // Update Pan based on input
+      if (state.input.panUp) panOffsetRef.current.z -= 20 * dt;
+      if (state.input.panDown) panOffsetRef.current.z += 20 * dt;
+      if (state.input.panLeft) panOffsetRef.current.x -= 20 * dt;
+      if (state.input.panRight) panOffsetRef.current.x += 20 * dt;
+
+      if (mode === 'FIRST_PERSON') {
+        // First Person: Attach to player head, look forward
+        const headPos = state.player.pos.clone().add(new THREE.Vector3(0, 1.6, 0));
+        camera.position.copy(headPos);
+
+        // Look direction based on player rotation
+        // We look slightly down to see the ground/enemies
+        const lookDir = new THREE.Vector3(Math.sin(state.player.rot), -0.2, Math.cos(state.player.rot));
+        const target = headPos.clone().add(lookDir);
+        camera.lookAt(target);
+
+      } else if (mode === 'TOPDOWN') {
+        // Top Down: High above, looking straight down
+        // Apply Pan
+        const targetPos = state.player.pos.clone().add(pan).add(new THREE.Vector3(0, 50 * z, 0));
+
+        // Rotate around Y if needed (though top down usually doesn't rotate tilt)
+        // Let's allow rotation for "orientation"
+        const rotOffset = new THREE.Vector3(0, 50 * z, 0);
+        // Top down doesn't really rotate position, just view up vector? 
+        // Let's just rotate the camera itself around the Z axis?
+        camera.up.set(Math.sin(angle), 0, Math.cos(angle)); // Rotate orientation
+
+        camera.position.lerp(targetPos, 0.1);
+        camera.lookAt(state.player.pos.clone().add(pan));
+
       } else {
-        camera.position.copy(baseCamPos);
+        // Isometric (Default): Follow player with offset + Rotation + Pan
+        const dist = 40 * z;
+        const height = 32 * z;
+
+        // Calculate offset based on angle
+        // Base offset was (0, 32, 40) -> (0, height, dist)
+        // Rotated: x = dist * sin(angle), z = dist * cos(angle)
+        const rotOffset = new THREE.Vector3(dist * Math.sin(angle), height, dist * Math.cos(angle));
+
+        const targetPos = state.player.pos.clone().add(pan).add(rotOffset);
+
+        // Screen shake
+        if (state.shakeDuration > 0) {
+          state.shakeDuration -= dt;
+          const shake = state.shakeIntensity * (state.shakeDuration > 0 ? 1 : 0);
+          targetPos.add(new THREE.Vector3((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake * 0.5, (Math.random() - 0.5) * shake * 0.3));
+        }
+
+        camera.position.lerp(targetPos, 0.1);
+        camera.lookAt(state.player.pos.clone().add(pan));
+        camera.up.set(0, 1, 0); // Reset up vector
       }
 
       // Update ability cooldowns
@@ -1066,310 +1313,134 @@ export default function TurkeyTrotDefensePhase5() {
         return updated;
       });
 
-      // Update global effects
-      if (state.globalFreeze > 0) state.globalFreeze -= dt;
-      if (state.rageActive > 0) state.rageActive -= dt;
-
-      // Process pending airstrike
-      if (state.pendingAirstrike) {
-        const pos = state.pendingAirstrike;
-        createExplosion(pos, AbilityTypes.AIRSTRIKE.radius, AbilityTypes.AIRSTRIKE.damage);
-        audioManager.playSound('airstrike');
-        state.pendingAirstrike = null;
-      }
-
-      // Game logic
-      if (state.started && !state.gameOver && !state.paused) {
-        // Player movement
-        const mv = new THREE.Vector3();
-        if (state.input.w) mv.z -= 1;
-        if (state.input.s) mv.z += 1;
-        if (state.input.a) mv.x -= 1;
-        if (state.input.d) mv.x += 1;
-        if (mv.lengthSq() > 0) {
-          mv.normalize().multiplyScalar(6.5 * dt);
-          state.player.pos.add(mv);
-          state.player.pos.x = Math.max(-35, Math.min(35, state.player.pos.x));
-          state.player.pos.z = Math.max(-35, Math.min(35, state.player.pos.z));
-          playerGroup.position.copy(state.player.pos);
-          playerGroup.position.y = Math.abs(Math.sin(t * 12)) * 0.05;
-        }
-
-        // Player rotation
-        const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).setY(0);
-        if (dir.lengthSq() > 0.01) {
-          state.player.rot = Math.atan2(dir.x, dir.z);
-          playerGroup.rotation.y = state.player.rot;
-        }
-
-        // Player firing
-        const wp = WeaponTypes[state.currentWeapon];
-        const fireRateBonus = 1 + (state.upgrades?.fireRate || 0) * 0.1;
-        const rageFireRate = state.rageActive > 0 ? AbilityTypes.RAGE.fireRateMultiplier : 1;
-        if (state.input.firing && !placingTurret && t - state.lastFire > 1 / (wp.fireRate * fireRateBonus * rageFireRate)) {
-          const fireDir = new THREE.Vector3(Math.sin(state.player.rot), 0, Math.cos(state.player.rot));
-          state.projectiles.push(createProjectile(fireDir, state.currentWeapon));
-          state.lastFire = t;
-          state.shakeIntensity = 0.08;
-          state.shakeDuration = 0.08;
-        }
-
-        // Spawn turkeys (faster spawn rate for better pacing)
-        if (state.toSpawn > 0) {
-          state.spawnTimer += dt;
-          const spawnInterval = Math.max(0.6, 1.0 - state.wave * 0.03); // Gets faster each wave
-          if (state.spawnTimer > spawnInterval) {
-            state.spawnTimer = 0;
-            const type = getNextSpawnType(state.waveComp);
-            if (type) {
-              spawnedCounts[type]++;
-              state.toSpawn--;
-              const ang = Math.random() * Math.PI * 2;
-              state.turkeys.push(createTurkey(new THREE.Vector3(Math.cos(ang) * 32, 0, Math.sin(ang) * 32), type));
+      // Update projectiles (player)
+      for (let i = state.projectiles.length - 1; i >= 0; i--) {
+        const p = state.projectiles[i];
+        if (p.arc) {
+          p.arcProg += dt * 0.85;
+          p.mesh.position.y = p.startY + Math.sin(p.arcProg * Math.PI) * 6;
+          p.mesh.rotation.x = -Math.cos(p.arcProg * Math.PI) * 0.6;
+          if (p.arcProg >= 1) {
+            if (p.splash > 0) {
+              createExplosion(p.mesh.position.clone(), p.splash);
+              const splashKills = [];
+              state.turkeys.forEach((tk, idx) => {
+                const dx = tk.pos.x - p.mesh.position.x, dz = tk.pos.z - p.mesh.position.z;
+                const d = Math.sqrt(dx * dx + dz * dz);
+                if (d < p.splash) {
+                  tk.hp -= p.dmg * (1 - d / p.splash);
+                  if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; splashKills.push(idx); setHitMarker('kill'); setTimeout(() => setHitMarker(null), 200); }
+                }
+              });
+              for (let k = splashKills.length - 1; k >= 0; k--) removeTurkey(splashKills[k]);
             }
+            scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+            state.projectiles.splice(i, 1);
+            continue;
           }
         }
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.life += dt;
 
-        // Update turkeys
-        const freezeMult = state.globalFreeze > 0 ? 0.1 : 1;
-        for (let i = state.turkeys.length - 1; i >= 0; i--) {
-          const tk = state.turkeys[i];
-          if (tk.slowTimer > 0) { tk.slowTimer -= dt; if (tk.slowTimer <= 0) tk.slowMult = 1; }
-          
-          // Healer logic
-          if (tk.type === 'HEALER') {
-            tk.healTimer += dt;
-            if (tk.healTimer > 2) {
-              tk.healTimer = 0;
-              state.turkeys.forEach(other => {
-                if (other !== tk && !other.dead) {
-                  const dx = other.pos.x - tk.pos.x, dz = other.pos.z - tk.pos.z;
-                  if (Math.sqrt(dx * dx + dz * dz) < 5) {
-                    other.hp = Math.min(other.maxHp, other.hp + 10);
-                    emitParticles(other.pos.clone().setY(1), 5, 0x00ff00, { x: 1, y: 2, z: 1 }, 0.5);
-                  }
+        // Collision
+        for (let j = state.turkeys.length - 1; j >= 0; j--) {
+          const tk = state.turkeys[j];
+          if (p.hits.has(tk) || tk.dead) continue;
+          const dx = p.mesh.position.x - tk.pos.x, dz = p.mesh.position.z - tk.pos.z;
+          if (Math.sqrt(dx * dx + dz * dz) < 0.7 * tk.scale) {
+            p.hits.add(tk);
+            tk.hp -= p.dmg;
+            audioManager.playSound('hit');
+            if (p.slow > 0) { tk.slowMult = 1 - p.slow; tk.slowTimer = p.slowDuration; }
+            tk.body.material.color.set(0xff0000);
+            setTimeout(() => { if (tk.body) tk.body.material.color.set(TurkeyTypes[tk.type].body); }, 80);
+            emitParticles(p.mesh.position.clone(), 8, 0xffff00, { x: 3, y: 4, z: 3 }, 0.3);
+            setHitMarker(tk.hp <= 0 ? 'kill' : 'hit');
+            setTimeout(() => setHitMarker(null), 150);
+            if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; removeTurkey(j); }
+            if (p.splash > 0) {
+              createExplosion(p.mesh.position.clone(), p.splash);
+              const splashKills = [];
+              state.turkeys.forEach((otk, oidx) => {
+                if (otk !== tk && !otk.dead) {
+                  const sdx = otk.pos.x - p.mesh.position.x, sdz = otk.pos.z - p.mesh.position.z;
+                  const d = Math.sqrt(sdx * sdx + sdz * sdz);
+                  if (d < p.splash) { otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); if (otk.hp <= 0 && !otk.dead) { otk.dead = true; state.currency += otk.val; state.score += otk.val * 10; splashKills.push(oidx); } }
+                }
+              });
+              for (let k = splashKills.length - 1; k >= 0; k--) removeTurkey(splashKills[k]);
+            }
+            if (p.pierce <= 0) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.projectiles.splice(i, 1); break; }
+            p.pierce--;
+          }
+        }
+        if (p.life > 3 && state.projectiles[i]) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.projectiles.splice(i, 1); }
+      }
+
+      // Update turret projectiles
+      for (let i = state.turretProjectiles.length - 1; i >= 0; i--) {
+        const p = state.turretProjectiles[i];
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.life += dt;
+
+        for (let j = state.turkeys.length - 1; j >= 0; j--) {
+          const tk = state.turkeys[j];
+          if (p.hits.has(tk) || tk.dead) continue;
+          const dx = p.mesh.position.x - tk.pos.x, dz = p.mesh.position.z - tk.pos.z;
+          if (Math.sqrt(dx * dx + dz * dz) < 0.7 * tk.scale) {
+            p.hits.add(tk);
+            tk.hp -= p.dmg;
+            if (p.slow > 0) { tk.slowMult = 1 - p.slow; tk.slowTimer = p.slowDuration; }
+            tk.body.material.color.set(0xff0000);
+            setTimeout(() => { if (tk.body) tk.body.material.color.set(TurkeyTypes[tk.type].body); }, 80);
+            emitParticles(p.mesh.position.clone(), 5, 0xffff00, { x: 2, y: 3, z: 2 }, 0.2);
+            if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; removeTurkey(j); }
+            if (p.splash > 0) {
+              createExplosion(p.mesh.position.clone(), p.splash);
+              state.turkeys.forEach((otk) => {
+                if (otk !== tk && !otk.dead) {
+                  const sdx = otk.pos.x - p.mesh.position.x, sdz = otk.pos.z - p.mesh.position.z;
+                  const d = Math.sqrt(sdx * sdx + sdz * sdz);
+                  if (d < p.splash) { otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); if (otk.hp <= 0 && !otk.dead) { otk.dead = true; state.currency += otk.val; state.score += otk.val * 10; } }
                 }
               });
             }
-          }
-          
-          // Boss phase transitions
-          if (tk.type === 'BOSS' && tk.bossPhase > 0) {
-            const hpPercent = tk.hp / tk.maxHp;
-            if (hpPercent < 0.66 && tk.bossPhase === 3) {
-              tk.bossPhase = 2;
-              tk.spd *= 1.15;
-              emitParticles(tk.pos.clone().setY(1), 30, 0xff0000, { x: 5, y: 8, z: 5 }, 1);
-              setBanner('Boss Enraged!');
-              setTimeout(() => setBanner(''), 1500);
-            } else if (hpPercent < 0.33 && tk.bossPhase === 2) {
-              tk.bossPhase = 1;
-              tk.spd *= 1.15;
-              tk.dmg *= 1.3;
-              emitParticles(tk.pos.clone().setY(1), 40, 0xff4400, { x: 6, y: 10, z: 6 }, 1.2);
-              setBanner('Boss Furious!');
-              setTimeout(() => setBanner(''), 1500);
-            }
-          }
-          
-          const toB = new THREE.Vector3(0, 0, 0).sub(tk.pos).setY(0);
-          const dist = toB.length();
-          if (dist > 2) {
-            toB.normalize().multiplyScalar(tk.spd * tk.slowMult * freezeMult * dt);
-            tk.pos.add(toB);
-            tk.mesh.position.copy(tk.pos);
-            const animSpeed = tk.type === 'RUNNER' ? 1.5 : tk.type === 'TANK' ? 0.7 : 1;
-            tk.mesh.position.y = Math.abs(Math.sin(t * 7 * animSpeed + tk.bob)) * 0.05 * tk.scale;
-            tk.mesh.rotation.y = Math.atan2(toB.x, toB.z);
-            if (tk.tail) tk.tail.rotation.z = Math.sin(t * 4 * animSpeed + tk.bob) * 0.12;
-            
-            // Visual effects
-            if (tk.slowMult < 1 || state.globalFreeze > 0) {
-              tk.body.material.emissive = new THREE.Color(0x4444ff);
-              tk.body.material.emissiveIntensity = 0.3 + Math.sin(t * 8) * 0.15;
-            } else if (state.rageActive > 0) {
-              // No effect on enemies from player rage
-            } else {
-              tk.body.material.emissiveIntensity = 0;
-            }
-          } else {
-            // Turkey reached barn
-            const armorReduction = 1 - (state.upgrades?.barnArmor || 0) * 0.1;
-            state.barn.health -= tk.dmg * armorReduction;
-            state.shakeIntensity = 0.3;
-            state.shakeDuration = 0.2;
-            audioManager.playSound('hurt');
-            removeTurkey(i);
-            if (state.barn.health <= 0) {
-              state.gameOver = true;
-              setGameOver(true);
-              setBanner(`Game Over! Score: ${state.score}`);
-              audioManager.playSound('gameover');
-              audioManager.stopMusic();
-              
-              // Check for clutch achievement (not achieved in this case)
-            }
+            scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
+            state.turretProjectiles.splice(i, 1);
+            break;
           }
         }
-
-        // Update turrets
-        state.turrets.forEach(turret => {
-          // Find target
-          let bestTarget = null, bestDist = turret.turretRange + 1;
-          state.turkeys.forEach(tk => {
-            if (tk.dead) return;
-            const dx = tk.pos.x - turret.pos.x, dz = tk.pos.z - turret.pos.z;
-            const d = Math.sqrt(dx * dx + dz * dz);
-            if (d < turret.turretRange && d < bestDist) {
-              bestDist = d;
-              bestTarget = tk;
-            }
-          });
-          
-          turret.target = bestTarget;
-          
-          // Fire at target
-          if (bestTarget && t - turret.lastFire > 1 / turret.fireRate) {
-            turret.lastFire = t;
-            const dir = new THREE.Vector3().subVectors(bestTarget.pos, turret.pos).setY(0).normalize();
-            const proj = createProjectile({ origin: turret.pos, direction: dir }, turret.type, true);
-            proj.slow = turret.slow;
-            proj.slowDuration = turret.slowDuration;
-            proj.splash = turret.splash;
-            state.turretProjectiles.push(proj);
-          }
-        });
-
-        // Update projectiles (player)
-        for (let i = state.projectiles.length - 1; i >= 0; i--) {
-          const p = state.projectiles[i];
-          if (p.arc) {
-            p.arcProg += dt * 0.85;
-            p.mesh.position.y = p.startY + Math.sin(p.arcProg * Math.PI) * 6;
-            p.mesh.rotation.x = -Math.cos(p.arcProg * Math.PI) * 0.6;
-            if (p.arcProg >= 1) {
-              if (p.splash > 0) {
-                createExplosion(p.mesh.position.clone(), p.splash);
-                const splashKills = [];
-                state.turkeys.forEach((tk, idx) => {
-                  const dx = tk.pos.x - p.mesh.position.x, dz = tk.pos.z - p.mesh.position.z;
-                  const d = Math.sqrt(dx * dx + dz * dz);
-                  if (d < p.splash) {
-                    tk.hp -= p.dmg * (1 - d / p.splash);
-                    if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; splashKills.push(idx); setHitMarker('kill'); setTimeout(() => setHitMarker(null), 200); }
-                  }
-                });
-                for (let k = splashKills.length - 1; k >= 0; k--) removeTurkey(splashKills[k]);
-              }
-              scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
-              state.projectiles.splice(i, 1);
-              continue;
-            }
-          }
-          p.mesh.position.addScaledVector(p.vel, dt);
-          p.life += dt;
-
-          // Collision
-          for (let j = state.turkeys.length - 1; j >= 0; j--) {
-            const tk = state.turkeys[j];
-            if (p.hits.has(tk) || tk.dead) continue;
-            const dx = p.mesh.position.x - tk.pos.x, dz = p.mesh.position.z - tk.pos.z;
-            if (Math.sqrt(dx * dx + dz * dz) < 0.7 * tk.scale) {
-              p.hits.add(tk);
-              tk.hp -= p.dmg;
-              audioManager.playSound('hit');
-              if (p.slow > 0) { tk.slowMult = 1 - p.slow; tk.slowTimer = p.slowDuration; }
-              tk.body.material.color.set(0xff0000);
-              setTimeout(() => { if (tk.body) tk.body.material.color.set(TurkeyTypes[tk.type].body); }, 80);
-              emitParticles(p.mesh.position.clone(), 8, 0xffff00, { x: 3, y: 4, z: 3 }, 0.3);
-              setHitMarker(tk.hp <= 0 ? 'kill' : 'hit');
-              setTimeout(() => setHitMarker(null), 150);
-              if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; removeTurkey(j); }
-              if (p.splash > 0) {
-                createExplosion(p.mesh.position.clone(), p.splash);
-                const splashKills = [];
-                state.turkeys.forEach((otk, oidx) => {
-                  if (otk !== tk && !otk.dead) {
-                    const sdx = otk.pos.x - p.mesh.position.x, sdz = otk.pos.z - p.mesh.position.z;
-                    const d = Math.sqrt(sdx * sdx + sdz * sdz);
-                    if (d < p.splash) { otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); if (otk.hp <= 0 && !otk.dead) { otk.dead = true; state.currency += otk.val; state.score += otk.val * 10; splashKills.push(oidx); } }
-                  }
-                });
-                for (let k = splashKills.length - 1; k >= 0; k--) removeTurkey(splashKills[k]);
-              }
-              if (p.pierce <= 0) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.projectiles.splice(i, 1); break; }
-              p.pierce--;
-            }
-          }
-          if (p.life > 3 && state.projectiles[i]) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.projectiles.splice(i, 1); }
-        }
-
-        // Update turret projectiles
-        for (let i = state.turretProjectiles.length - 1; i >= 0; i--) {
-          const p = state.turretProjectiles[i];
-          p.mesh.position.addScaledVector(p.vel, dt);
-          p.life += dt;
-
-          for (let j = state.turkeys.length - 1; j >= 0; j--) {
-            const tk = state.turkeys[j];
-            if (p.hits.has(tk) || tk.dead) continue;
-            const dx = p.mesh.position.x - tk.pos.x, dz = p.mesh.position.z - tk.pos.z;
-            if (Math.sqrt(dx * dx + dz * dz) < 0.7 * tk.scale) {
-              p.hits.add(tk);
-              tk.hp -= p.dmg;
-              if (p.slow > 0) { tk.slowMult = 1 - p.slow; tk.slowTimer = p.slowDuration; }
-              tk.body.material.color.set(0xff0000);
-              setTimeout(() => { if (tk.body) tk.body.material.color.set(TurkeyTypes[tk.type].body); }, 80);
-              emitParticles(p.mesh.position.clone(), 5, 0xffff00, { x: 2, y: 3, z: 2 }, 0.2);
-              if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; removeTurkey(j); }
-              if (p.splash > 0) {
-                createExplosion(p.mesh.position.clone(), p.splash);
-                state.turkeys.forEach((otk) => {
-                  if (otk !== tk && !otk.dead) {
-                    const sdx = otk.pos.x - p.mesh.position.x, sdz = otk.pos.z - p.mesh.position.z;
-                    const d = Math.sqrt(sdx * sdx + sdz * sdz);
-                    if (d < p.splash) { otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); if (otk.hp <= 0 && !otk.dead) { otk.dead = true; state.currency += otk.val; state.score += otk.val * 10; } }
-                  }
-                });
-              }
-              scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
-              state.turretProjectiles.splice(i, 1);
-              break;
-            }
-          }
-          if (p.life > 2 && state.turretProjectiles[i]) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.turretProjectiles.splice(i, 1); }
-        }
-
-        // Cleanup dead turkeys
-        for (let i = state.turkeys.length - 1; i >= 0; i--) {
-          if (state.turkeys[i].dead || state.turkeys[i].hp <= 0) removeTurkey(i);
-        }
-
-        // Wave completion
-        if (state.toSpawn === 0 && state.turkeys.length === 0 && state.wave > 0 && !state.waveComplete) {
-          state.waveComplete = true;
-          const bonus = 30 + state.wave * 15;
-          state.currency += bonus;
-          state.score += bonus * 5;
-
-          setBanner(`Wave Complete! +${bonus} 🌽`);
-          audioManager.playSound('wave');
-          setWaitingForNextWave(true);
-        }        // Update HUD
-        const hp = state.barn.health / state.barn.maxHealth;
-        barnBase.material.color.setHex(hp < 0.25 ? 0x5a0000 : hp < 0.5 ? 0x7a0000 : 0x8b0000);
-        setLowHealth(hp < 0.25);
-        setStats({ health: Math.round(hp * 100), currency: state.currency, wave: state.wave, enemies: state.turkeys.length + state.toSpawn, score: state.score });
+        if (p.life > 2 && state.turretProjectiles[i]) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.turretProjectiles.splice(i, 1); }
       }
+
+      // Cleanup dead turkeys
+      for (let i = state.turkeys.length - 1; i >= 0; i--) {
+        if (state.turkeys[i].dead || state.turkeys[i].hp <= 0) removeTurkey(i);
+      }
+
+      // Wave completion
+      if (state.toSpawn === 0 && state.turkeys.length === 0 && state.wave > 0 && !state.waveComplete) {
+        state.waveComplete = true;
+        const bonus = 30 + state.wave * 15;
+        state.currency += bonus;
+        state.score += bonus * 5;
+
+        setBanner(`Wave Complete! +${bonus} 🌽`);
+        audioManager.playSound('wave');
+        setWaitingForNextWave(true);
+      }        // Update HUD
+      const hp = state.barn.health / state.barn.maxHealth;
+      barnBase.material.color.setHex(hp < 0.25 ? 0x5a0000 : hp < 0.5 ? 0x7a0000 : 0x8b0000);
+      setLowHealth(hp < 0.25);
+      setStats({ health: Math.round(hp * 100), currency: state.currency, wave: state.wave, enemies: state.turkeys.length + state.toSpawn, score: state.score });
 
       renderer.render(scene, camera);
     };
-
     // Game API
     gameRef.current = {
       start: async (endless = false) => {
         if (!state.started) {
-          await initAudio();
+          await audioManager.init();
           state.started = true;
           state.endlessMode = endless;
           state.gameStartTime = performance.now();
@@ -1409,7 +1480,7 @@ export default function TurkeyTrotDefensePhase5() {
         state.projectiles.forEach(p => { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); });
         state.turretProjectiles.forEach(p => { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); });
         state.turrets.forEach(t => { scene.remove(t.mesh); t.mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); }); });
-        
+
         state.turkeys = []; state.projectiles = []; state.turretProjectiles = []; state.turrets = [];
         state.wave = 0; state.toSpawn = 0; state.currency = 100; state.score = 0;
         state.barn.health = 175; state.barn.maxHealth = 175;
@@ -1420,7 +1491,7 @@ export default function TurkeyTrotDefensePhase5() {
         playerGroup.position.copy(state.player.pos);
         state.globalFreeze = 0; state.rageActive = 0;
         state.upgrades = { barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 };
-        
+
         Object.keys(spawnedCounts).forEach(k => spawnedCounts[k] = 0);
         setUpgrades({ barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 });
         setTurrets([]);
@@ -1428,7 +1499,7 @@ export default function TurkeyTrotDefensePhase5() {
         setGameOver(false);
         setBanner('');
         setAbilities({ AIRSTRIKE: { cooldown: 0, active: false }, FREEZE: { cooldown: 0, active: false, remaining: 0 }, RAGE: { cooldown: 0, active: false, remaining: 0 }, REPAIR: { cooldown: 0, active: false } });
-        
+
         audioManager.startMusic();
         updatePlayerStats({ gamesPlayed: playerStats.gamesPlayed + 1 });
         setTimeout(() => startWave(), 1000);
@@ -1466,16 +1537,16 @@ export default function TurkeyTrotDefensePhase5() {
   return (
     <div className="relative w-full h-screen bg-gray-900 overflow-hidden select-none">
       <div ref={containerRef} className="w-full h-full" />
-      
+
       {/* Low health vignette */}
       {lowHealth && <div className="absolute inset-0 pointer-events-none animate-pulse" style={{ background: 'radial-gradient(circle, transparent 40%, rgba(139,0,0,0.4) 100%)' }} />}
-      
+
       {/* Rage effect */}
       {abilities.RAGE.active && <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle, transparent 60%, rgba(255,100,0,0.2) 100%)' }} />}
-      
+
       {/* Freeze effect */}
       {abilities.FREEZE.active && <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(100,200,255,0.1) 0%, rgba(100,200,255,0.3) 100%)' }} />}
-      
+
       {/* Hit markers */}
       {hitMarker && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
@@ -1516,9 +1587,18 @@ export default function TurkeyTrotDefensePhase5() {
             {endlessMode && <span className="text-purple-400">♾️ Endless</span>}
           </div>
         </div>
-        
+
         <div className="flex gap-2 pointer-events-auto">
           {settings.showFps && <div className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white text-sm">{fps} FPS</div>}
+          <button onClick={() => {
+            const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
+            const next = modes[(modes.indexOf(cameraMode) + 1) % modes.length];
+            setCameraMode(next);
+            audioManager.playSound('click');
+          }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition flex items-center gap-2">
+            <span>📷</span>
+            <span className="text-xs font-bold">{cameraMode === 'FIRST_PERSON' ? 'FPS' : cameraMode === 'TOPDOWN' ? 'TOP' : 'ISO'}</span>
+          </button>
           <button onClick={() => { setAchievementsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition">🏆</button>
           <button onClick={() => { setSettingsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition">⚙️</button>
           <button onClick={() => { setHelpOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition">❓</button>
@@ -1628,7 +1708,7 @@ export default function TurkeyTrotDefensePhase5() {
       {/* Next Wave Button */}
       {waitingForNextWave && !gameOver && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30">
-          <button 
+          <button
             onClick={() => gameRef.current?.nextWave()}
             className="bg-gradient-to-r from-green-500 to-emerald-600 text-white text-2xl font-bold px-10 py-5 rounded-xl hover:scale-110 transition-all shadow-2xl animate-pulse"
           >
@@ -1654,7 +1734,7 @@ export default function TurkeyTrotDefensePhase5() {
             </button>
           </div>
           <div className="text-gray-500 text-sm mb-4">
-            WASD: Move • Mouse: Aim/Shoot • 1-4: Weapons • Q/E/R/F: Abilities • T: Turrets • B: Shop
+            WASD: Move • Arrows: Pan • &lt; &gt;: Rotate • Mouse: Aim/Shoot • 1-4: Weapons • Q/E/R/F: Abilities
           </div>
           <div className="flex gap-4">
             <button onClick={() => { setAchievementsOpen(true); audioManager.playSound('click'); }}
