@@ -827,9 +827,9 @@ export default function TurkeyTrotDefensePhase5() {
       const upgrade = HouseUpgrades[upgradeKey];
       const { width, depth, height, roofHeight, doors, windows, doorHealth, windowHealth } = upgrade;
       
-      // Main structure
-      const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85 });
-      const roofMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.8, metalness: 0.2 });
+      // Main structure - DoubleSide so walls/roof are visible from inside
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
+      const roofMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.8, metalness: 0.2, side: THREE.DoubleSide });
       
       // Walls (box with holes for doors/windows will be approximated)
       const walls = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
@@ -844,8 +844,8 @@ export default function TurkeyTrotDefensePhase5() {
       roof.castShadow = true;
       houseGroup.add(roof);
       
-      // Create doors
-      const doorMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 });
+      // Create doors - DoubleSide for visibility from inside
+      const doorMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9, side: THREE.DoubleSide });
       const doorPositions = [
         { x: 0, z: depth / 2 + 0.02, rotY: 0 }, // Front
         { x: 0, z: -depth / 2 - 0.02, rotY: Math.PI }, // Back
@@ -857,7 +857,7 @@ export default function TurkeyTrotDefensePhase5() {
         const doorGroup = new THREE.Group();
         
         // Door frame
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.15), new THREE.MeshStandardMaterial({ color: 0x2d1f14 }));
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.15), new THREE.MeshStandardMaterial({ color: 0x2d1f14, side: THREE.DoubleSide }));
         frame.position.y = 1.4;
         doorGroup.add(frame);
         
@@ -881,13 +881,14 @@ export default function TurkeyTrotDefensePhase5() {
         });
       }
       
-      // Create windows
+      // Create windows - DoubleSide for visibility from inside
       const windowMat = new THREE.MeshStandardMaterial({ 
         color: 0xffffcc, 
         emissive: 0xffffaa, 
         emissiveIntensity: 0.3,
         transparent: true,
-        opacity: 0.8
+        opacity: 0.8,
+        side: THREE.DoubleSide
       });
       
       // Window positions distributed around the house
@@ -922,7 +923,7 @@ export default function TurkeyTrotDefensePhase5() {
         const windowGroup = new THREE.Group();
         
         // Window frame
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x2d1f14 }));
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x2d1f14, side: THREE.DoubleSide }));
         windowGroup.add(frame);
         
         // Window glass (damageable)
@@ -1447,7 +1448,8 @@ export default function TurkeyTrotDefensePhase5() {
         // E key - Enter/Exit house
         if (e.code === 'KeyE') {
           const houseData = houseGroup.userData;
-          const distToHouse = state.player.pos.distanceTo(state.house.pos);
+          const halfW = houseData.width / 2;
+          const halfD = houseData.depth / 2;
           
           if (state.player.isInside) {
             // Exit house - find an open door to exit through
@@ -1468,9 +1470,32 @@ export default function TurkeyTrotDefensePhase5() {
               setTimeout(() => setBanner(''), 2000);
             }
           } else {
-            // Enter house - check if near a door and door has path
-            const frontDoor = houseDoors[0];
-            if (frontDoor && distToHouse < houseData.depth / 2 + 3) {
+            // Enter house - check if near a door
+            const doorProximity = 2.5; // How close to door to enter
+            const doorHalfWidth = 1.2; // Door opening detection width
+            let canEnter = false;
+            let nearDoorName = '';
+            
+            // Check front door
+            if (Math.abs(state.player.pos.x) < doorHalfWidth && 
+                state.player.pos.z > halfD && state.player.pos.z < halfD + doorProximity) {
+              canEnter = true;
+              nearDoorName = 'front door';
+            }
+            // Check back door (if exists)
+            if (houseDoors[1] && Math.abs(state.player.pos.x) < doorHalfWidth && 
+                state.player.pos.z < -halfD && state.player.pos.z > -halfD - doorProximity) {
+              canEnter = true;
+              nearDoorName = 'back door';
+            }
+            // Check right door (if exists)
+            if (houseDoors[2] && Math.abs(state.player.pos.z) < doorHalfWidth && 
+                state.player.pos.x > halfW && state.player.pos.x < halfW + doorProximity) {
+              canEnter = true;
+              nearDoorName = 'side door';
+            }
+            
+            if (canEnter) {
               state.player.isInside = true;
               state.player.pos.set(0, 0, 0); // Center of house
               playerGroup.position.copy(state.player.pos);
@@ -1478,7 +1503,7 @@ export default function TurkeyTrotDefensePhase5() {
               setBanner('Entered house - You are safe inside!');
               setTimeout(() => setBanner(''), 2000);
             } else {
-              setBanner('Get closer to the door to enter (E)');
+              setBanner('Get closer to a door to enter (E)');
               setTimeout(() => setBanner(''), 1500);
             }
           }
@@ -1761,7 +1786,101 @@ export default function TurkeyTrotDefensePhase5() {
       if (mv.lengthSq() > 0) {
         mv.normalize().multiplyScalar(6.5 * dt);
 
-        state.player.pos.add(mv);
+        // Calculate new position
+        const newPos = state.player.pos.clone().add(mv);
+        
+        // House wall collision detection
+        const houseData = houseGroup.userData;
+        const halfW = houseData.width / 2;
+        const halfD = houseData.depth / 2;
+        const wallBuffer = 0.5; // Player collision radius
+        const doorHalfWidth = 0.9; // Door opening half-width
+        
+        // Check if player is trying to cross house walls
+        if (!state.player.isInside) {
+          // Player is OUTSIDE - prevent entering through walls
+          const wasOutsideX = state.player.pos.x <= -halfW - wallBuffer || state.player.pos.x >= halfW + wallBuffer;
+          const wasOutsideZ = state.player.pos.z <= -halfD - wallBuffer || state.player.pos.z >= halfD + wallBuffer;
+          const nowInsideX = newPos.x > -halfW && newPos.x < halfW;
+          const nowInsideZ = newPos.z > -halfD && newPos.z < halfD;
+          
+          // Check if trying to enter the house zone
+          if (nowInsideX && nowInsideZ) {
+            // Block entry - push back to wall edge
+            // Determine which wall they're hitting
+            if (!wasOutsideX && wasOutsideZ) {
+              // Coming from front or back
+              if (state.player.pos.z > 0) {
+                // Front wall - check for front door
+                const frontDoor = houseDoors[0];
+                const atFrontDoor = Math.abs(newPos.x) < doorHalfWidth && frontDoor?.destroyed;
+                if (!atFrontDoor) newPos.z = halfD + wallBuffer;
+              } else {
+                // Back wall - check for back door
+                const backDoor = houseDoors[1];
+                const atBackDoor = Math.abs(newPos.x) < doorHalfWidth && backDoor?.destroyed;
+                if (!atBackDoor) newPos.z = -halfD - wallBuffer;
+              }
+            } else if (wasOutsideX && !wasOutsideZ) {
+              // Coming from left or right
+              if (state.player.pos.x > 0) {
+                // Right wall - check for right door
+                const rightDoor = houseDoors[2];
+                const atRightDoor = Math.abs(newPos.z) < doorHalfWidth && rightDoor?.destroyed;
+                if (!atRightDoor) newPos.x = halfW + wallBuffer;
+              } else {
+                // Left wall - no door
+                newPos.x = -halfW - wallBuffer;
+              }
+            } else {
+              // Coming from corner - block both axes
+              if (newPos.x > 0) newPos.x = halfW + wallBuffer;
+              else newPos.x = -halfW - wallBuffer;
+              if (newPos.z > 0) newPos.z = halfD + wallBuffer;
+              else newPos.z = -halfD - wallBuffer;
+            }
+          }
+        } else {
+          // Player is INSIDE - prevent exiting through walls (must use door)
+          // Clamp to interior bounds
+          const innerHalfW = halfW - wallBuffer;
+          const innerHalfD = halfD - wallBuffer;
+          
+          // Check if trying to exit through a wall
+          if (newPos.x < -innerHalfW || newPos.x > innerHalfW ||
+              newPos.z < -innerHalfD || newPos.z > innerHalfD) {
+            // Check if at a destroyed door opening
+            let canExit = false;
+            
+            // Front door check
+            if (newPos.z > innerHalfD && Math.abs(newPos.x) < doorHalfWidth) {
+              const frontDoor = houseDoors[0];
+              if (frontDoor?.destroyed) canExit = true;
+            }
+            // Back door check
+            if (newPos.z < -innerHalfD && Math.abs(newPos.x) < doorHalfWidth) {
+              const backDoor = houseDoors[1];
+              if (backDoor?.destroyed) canExit = true;
+            }
+            // Right door check
+            if (newPos.x > innerHalfW && Math.abs(newPos.z) < doorHalfWidth) {
+              const rightDoor = houseDoors[2];
+              if (rightDoor?.destroyed) canExit = true;
+            }
+            
+            if (!canExit) {
+              // Block exit - clamp to interior
+              newPos.x = Math.max(-innerHalfW, Math.min(innerHalfW, newPos.x));
+              newPos.z = Math.max(-innerHalfD, Math.min(innerHalfD, newPos.z));
+            } else {
+              // Exiting through door - update isInside state
+              state.player.isInside = false;
+            }
+          }
+        }
+        
+        // Apply position with world boundary clamping
+        state.player.pos.copy(newPos);
         state.player.pos.x = Math.max(-45, Math.min(45, state.player.pos.x));
         state.player.pos.z = Math.max(-45, Math.min(45, state.player.pos.z));
         playerGroup.position.copy(state.player.pos);
@@ -1882,19 +2001,54 @@ export default function TurkeyTrotDefensePhase5() {
           speed = 0;
         }
 
-        tk.pos.add(dir.multiplyScalar(speed * dt));
+        // Calculate new position
+        const newTkPos = tk.pos.clone().add(dir.clone().multiplyScalar(speed * dt));
+        
+        // House wall collision for turkeys
+        const houseData = houseGroup.userData;
+        const halfW = houseData.width / 2;
+        const halfD = houseData.depth / 2;
+        const tkRadius = 0.6 * tk.scale; // Turkey collision radius
+        
+        // Check if turkey would enter the house walls
+        const wouldBeInsideX = newTkPos.x > -halfW - tkRadius && newTkPos.x < halfW + tkRadius;
+        const wouldBeInsideZ = newTkPos.z > -halfD - tkRadius && newTkPos.z < halfD + tkRadius;
+        
+        if (wouldBeInsideX && wouldBeInsideZ) {
+          // Turkey is trying to enter house zone - stop at the wall
+          // Determine which side they're approaching from and stop there
+          const fromX = tk.pos.x <= -halfW - tkRadius || tk.pos.x >= halfW + tkRadius;
+          const fromZ = tk.pos.z <= -halfD - tkRadius || tk.pos.z >= halfD + tkRadius;
+          
+          if (fromZ) {
+            // Approaching from front or back
+            if (tk.pos.z > 0) {
+              newTkPos.z = Math.max(newTkPos.z, halfD + tkRadius);
+            } else {
+              newTkPos.z = Math.min(newTkPos.z, -halfD - tkRadius);
+            }
+          }
+          if (fromX) {
+            // Approaching from left or right
+            if (tk.pos.x > 0) {
+              newTkPos.x = Math.max(newTkPos.x, halfW + tkRadius);
+            } else {
+              newTkPos.x = Math.min(newTkPos.x, -halfW - tkRadius);
+            }
+          }
+        }
+        
+        tk.pos.copy(newTkPos);
         tk.mesh.position.copy(tk.pos);
         tk.mesh.lookAt(targetPos);
 
         // Bobbing animation
         tk.mesh.position.y = Math.abs(Math.sin(t * 10)) * 0.5;
-
-        const houseData = houseGroup.userData;
         
         if (targetIsHouse) {
           // Turkey attacking house - find nearest door or window to attack
           const distToHouse = tk.pos.distanceTo(state.house.pos);
-          const houseRadius = Math.max(houseData.width, houseData.depth) / 2 + 1;
+          const houseRadius = Math.max(houseData.width, houseData.depth) / 2 + 1.5;
           
           if (distToHouse < houseRadius) {
             if (!tk.attackCooldown || tk.attackCooldown <= 0) {
@@ -2641,6 +2795,40 @@ export default function TurkeyTrotDefensePhase5() {
       // Check if a saved session exists
       hasSession: () => {
         return loadSessionData() !== null;
+      },
+      
+      // Take a screenshot of the game
+      takeScreenshot: () => {
+        try {
+          // Render the current frame to ensure it's up to date
+          renderer.render(scene, camera);
+          
+          // Get the canvas data as a PNG
+          const dataURL = renderer.domElement.toDataURL('image/png');
+          
+          // Create a download link
+          const link = document.createElement('a');
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          link.download = `TurkeyTrotDefense_${timestamp}.png`;
+          link.href = dataURL;
+          
+          // Trigger the download
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          // Play sound and show feedback
+          audioManager.playSound('click');
+          setBanner('📸 Screenshot saved!');
+          setTimeout(() => setBanner(''), 1500);
+          
+          return true;
+        } catch (e) {
+          console.warn('Screenshot failed:', e);
+          setBanner('Screenshot failed');
+          setTimeout(() => setBanner(''), 1500);
+          return false;
+        }
       }
     };
 
@@ -2789,6 +2977,9 @@ export default function TurkeyTrotDefensePhase5() {
           }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition flex items-center gap-2">
             <span>📷</span>
             <span className="text-xs font-bold">{cameraMode === 'FIRST_PERSON' ? 'FPS' : cameraMode === 'TOPDOWN' ? 'TOP' : 'ISO'}</span>
+          </button>
+          <button onClick={() => { gameRef.current?.takeScreenshot(); }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition" title="Take Screenshot">
+            <span>🖼️</span>
           </button>
           <button onClick={() => { setAchievementsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition">🏆</button>
           <button onClick={() => { setSettingsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-lg px-3 py-2 text-white hover:bg-black/80 transition">⚙️</button>
