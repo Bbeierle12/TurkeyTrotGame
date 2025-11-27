@@ -2193,8 +2193,8 @@ export default function TurkeyTrotDefensePhase5() {
         const rate = 1 / (weapon.fireRate * (1 + (state.upgrades?.fireRate || 0) * 0.1));
         state.shootTimer = rate;
 
-        // Calculate spread/direction
-        const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).setY(0).normalize();
+        // Calculate spread/direction (3D trajectory)
+        const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).normalize();
 
         // Multiple projectiles for shotgun/special
         const count = weapon.count || 1;
