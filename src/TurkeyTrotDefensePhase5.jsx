@@ -61,6 +61,42 @@ const TurkeyTypes = {
 };
 
 // =========================
+// HOUSE UPGRADE DEFINITIONS
+// =========================
+const HouseUpgrades = {
+  BASIC: {
+    level: 0, name: 'Starter Cabin', cost: 0,
+    width: 5.5, depth: 7, height: 4, roofHeight: 2.8,
+    doors: 1, windows: 2, doorHealth: 50, windowHealth: 30,
+    description: 'A small wooden cabin'
+  },
+  COTTAGE: {
+    level: 1, name: 'Cottage', cost: 200,
+    width: 7, depth: 9, height: 4.5, roofHeight: 3.2,
+    doors: 1, windows: 4, doorHealth: 75, windowHealth: 45,
+    description: 'A cozy cottage with more windows'
+  },
+  FARMHOUSE: {
+    level: 2, name: 'Farmhouse', cost: 400,
+    width: 9, depth: 11, height: 5, roofHeight: 3.5,
+    doors: 2, windows: 6, doorHealth: 100, windowHealth: 60,
+    description: 'A sturdy farmhouse with two doors'
+  },
+  MANOR: {
+    level: 3, name: 'Manor', cost: 700,
+    width: 12, depth: 14, height: 6, roofHeight: 4,
+    doors: 2, windows: 8, doorHealth: 150, windowHealth: 80,
+    description: 'A fortified manor house'
+  },
+  FORTRESS: {
+    level: 4, name: 'Fortress', cost: 1000,
+    width: 15, depth: 17, height: 7, roofHeight: 4.5,
+    doors: 3, windows: 10, doorHealth: 200, windowHealth: 100,
+    description: 'An impenetrable fortress'
+  }
+};
+
+// =========================
 // TURRET DEFINITIONS
 // =========================
 const TurretTypes = {
@@ -102,7 +138,7 @@ const AbilityTypes = {
   },
   REPAIR: {
     name: 'Emergency Repair', icon: '🔧', cooldown: 60, duration: 0,
-    description: 'Instantly restore 50% barn health',
+    description: 'Repair all doors and windows to 50% health',
     healPercent: 0.5
   }
 };
@@ -372,7 +408,7 @@ export default function TurkeyTrotDefensePhase5() {
   const savedData = useRef(loadSaveData());
 
   // Core game state
-  const [stats, setStats] = useState({ health: 100, currency: 100, wave: 0, enemies: 0, score: 0 });
+  const [stats, setStats] = useState({ health: 100, currency: 100, wave: 0, enemies: 0, score: 0, houseIntegrity: 100, isInside: false });
   const [weapon, setWeapon] = useState(WeaponTypes.PITCHFORK);
   const [banner, setBanner] = useState('');
   const [started, setStarted] = useState(false);
@@ -425,7 +461,7 @@ export default function TurkeyTrotDefensePhase5() {
 
   // Upgrades
   const [upgrades, setUpgrades] = useState({
-    barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0
+    houseArmor: 0, weaponDamage: 0, fireRate: 0, playerHealth: 0, houseLevel: 0
   });
 
   // Initialize unlocked achievements ref from saved data
@@ -542,7 +578,29 @@ export default function TurkeyTrotDefensePhase5() {
         state.rageActive = ability.duration;
         break;
       case 'REPAIR':
-        state.barn.health = Math.min(state.barn.maxHealth, state.barn.health + state.barn.maxHealth * ability.healPercent);
+        // Repair all doors and windows
+        if (state.house) {
+          state.house.doors.forEach(door => {
+            if (!door.destroyed) {
+              door.health = Math.min(door.maxHealth, door.health + door.maxHealth * ability.healPercent);
+            } else {
+              // Rebuild destroyed doors
+              door.health = door.maxHealth * ability.healPercent;
+              door.destroyed = false;
+              if (door.panel) door.panel.visible = true;
+            }
+          });
+          state.house.windows.forEach(win => {
+            if (!win.destroyed) {
+              win.health = Math.min(win.maxHealth, win.health + win.maxHealth * ability.healPercent);
+            } else {
+              // Rebuild destroyed windows
+              win.health = win.maxHealth * ability.healPercent;
+              win.destroyed = false;
+              if (win.glass) win.glass.visible = true;
+            }
+          });
+        }
         break;
     }
   }, [abilities, playerStats.abilitiesUsed, updatePlayerStats]);
@@ -612,6 +670,122 @@ export default function TurkeyTrotDefensePhase5() {
       scene.add(ring);
     });
 
+    // Trees along the edge of the map
+    const createTree = (x, z) => {
+      const treeGroup = new THREE.Group();
+      
+      // Randomize tree properties for variety
+      const trunkHeight = 2 + Math.random() * 1.5;
+      const trunkRadius = 0.3 + Math.random() * 0.15;
+      const foliageRadius = 1.5 + Math.random() * 0.8;
+      const foliageHeight = 3 + Math.random() * 1.5;
+      
+      // Tree trunk
+      const trunkGeo = new THREE.CylinderGeometry(trunkRadius * 0.6, trunkRadius, trunkHeight, 8);
+      const trunkMat = new THREE.MeshStandardMaterial({ 
+        color: 0x4a3728, 
+        roughness: 0.95 
+      });
+      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+      trunk.position.y = trunkHeight / 2;
+      trunk.castShadow = true;
+      trunk.receiveShadow = true;
+      treeGroup.add(trunk);
+      
+      // Fall foliage colors
+      const foliageColors = [0xcc4422, 0xdd6633, 0xee8844, 0xbb5522, 0xaa3311, 0xff6600, 0xcc5500];
+      const foliageColor = foliageColors[Math.floor(Math.random() * foliageColors.length)];
+      
+      // Main foliage (cone shape for pine-like trees or sphere for deciduous)
+      const isPine = Math.random() > 0.5;
+      let foliageGeo;
+      if (isPine) {
+        foliageGeo = new THREE.ConeGeometry(foliageRadius, foliageHeight, 8);
+      } else {
+        foliageGeo = new THREE.SphereGeometry(foliageRadius, 8, 6);
+      }
+      const foliageMat = new THREE.MeshStandardMaterial({ 
+        color: foliageColor, 
+        roughness: 0.9 
+      });
+      const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+      foliage.position.y = trunkHeight + (isPine ? foliageHeight / 2 : foliageRadius * 0.8);
+      foliage.castShadow = true;
+      treeGroup.add(foliage);
+      
+      // Add extra foliage layers for fuller trees
+      if (!isPine && Math.random() > 0.3) {
+        const extraFoliage = new THREE.Mesh(
+          new THREE.SphereGeometry(foliageRadius * 0.7, 6, 5),
+          new THREE.MeshStandardMaterial({ 
+            color: foliageColors[Math.floor(Math.random() * foliageColors.length)], 
+            roughness: 0.9 
+          })
+        );
+        extraFoliage.position.set(
+          (Math.random() - 0.5) * foliageRadius,
+          trunkHeight + foliageRadius * 0.4,
+          (Math.random() - 0.5) * foliageRadius
+        );
+        extraFoliage.castShadow = true;
+        treeGroup.add(extraFoliage);
+      }
+      
+      // Position and add slight random rotation
+      treeGroup.position.set(x, 0, z);
+      treeGroup.rotation.y = Math.random() * Math.PI * 2;
+      
+      // Random scale variation
+      const scale = 0.8 + Math.random() * 0.5;
+      treeGroup.scale.setScalar(scale);
+      
+      return treeGroup;
+    };
+    
+    // Place trees around the entire perimeter of the map - dense treeline
+    const mapEdge = 65; // Position trees just outside the playable area
+    const treeSpacing = 3; // Reduced spacing for denser trees
+    const treeVariation = 1.5; // Random position variation
+    
+    // Create multiple rows of trees for a dense forest edge
+    const treeRows = [0, 5, 10]; // Three rows at different depths
+    
+    treeRows.forEach(rowOffset => {
+      const edgePos = mapEdge + rowOffset;
+      
+      // North edge
+      for (let x = -edgePos; x <= edgePos; x += treeSpacing) {
+        const xPos = x + (Math.random() - 0.5) * treeVariation;
+        const zPos = -edgePos + (Math.random() - 0.5) * treeVariation;
+        const tree = createTree(xPos, zPos);
+        scene.add(tree);
+      }
+      
+      // South edge
+      for (let x = -edgePos; x <= edgePos; x += treeSpacing) {
+        const xPos = x + (Math.random() - 0.5) * treeVariation;
+        const zPos = edgePos + (Math.random() - 0.5) * treeVariation;
+        const tree = createTree(xPos, zPos);
+        scene.add(tree);
+      }
+      
+      // East edge (excluding corners already covered)
+      for (let z = -edgePos + treeSpacing; z < edgePos; z += treeSpacing) {
+        const xPos = edgePos + (Math.random() - 0.5) * treeVariation;
+        const zPos = z + (Math.random() - 0.5) * treeVariation;
+        const tree = createTree(xPos, zPos);
+        scene.add(tree);
+      }
+      
+      // West edge (excluding corners already covered)
+      for (let z = -edgePos + treeSpacing; z < edgePos; z += treeSpacing) {
+        const xPos = -edgePos + (Math.random() - 0.5) * treeVariation;
+        const zPos = z + (Math.random() - 0.5) * treeVariation;
+        const tree = createTree(xPos, zPos);
+        scene.add(tree);
+      }
+    });
+
     // Falling leaves
     const leafCount = 50;
     const leafGeo = new THREE.BufferGeometry();
@@ -632,24 +806,157 @@ export default function TurkeyTrotDefensePhase5() {
     const leaves = new THREE.Points(leafGeo, new THREE.PointsMaterial({ size: 0.4, vertexColors: true, transparent: true, opacity: 0.85 }));
     scene.add(leaves);
 
-    // Barn
-    const barnBase = new THREE.Mesh(new THREE.BoxGeometry(5.5, 4, 7), new THREE.MeshStandardMaterial({ color: 0x8b0000, roughness: 0.85 }));
-    barnBase.position.set(0, 2, 0);
-    barnBase.castShadow = barnBase.receiveShadow = true;
-    scene.add(barnBase);
-    const barnRoof = new THREE.Mesh(new THREE.ConeGeometry(5.2, 2.8, 4), new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.8, metalness: 0.2 }));
-    barnRoof.position.set(0, 5.4, 0);
-    barnRoof.rotation.y = Math.PI / 4;
-    barnRoof.castShadow = true;
-    scene.add(barnRoof);
-    const barnDoor = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 2.5), new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 }));
-    barnDoor.position.set(0, 1.25, 3.51);
-    scene.add(barnDoor);
-    [-1.8, 1.8].forEach(x => {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0xffffaa, emissiveIntensity: 0.3 }));
-      win.position.set(x, 2.8, 3.51);
-      scene.add(win);
-    });
+    // House System - upgradeable shelter with damageable doors/windows
+    const houseGroup = new THREE.Group();
+    const houseDoors = [];
+    const houseWindows = [];
+    let currentHouseLevel = 0;
+    
+    const createHouse = (level = 0) => {
+      // Clear existing house parts
+      while (houseGroup.children.length > 0) {
+        const child = houseGroup.children[0];
+        houseGroup.remove(child);
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      }
+      houseDoors.length = 0;
+      houseWindows.length = 0;
+      
+      const upgradeKey = Object.keys(HouseUpgrades)[level];
+      const upgrade = HouseUpgrades[upgradeKey];
+      const { width, depth, height, roofHeight, doors, windows, doorHealth, windowHealth } = upgrade;
+      
+      // Main structure
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85 });
+      const roofMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.8, metalness: 0.2 });
+      
+      // Walls (box with holes for doors/windows will be approximated)
+      const walls = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat);
+      walls.position.y = height / 2;
+      walls.castShadow = walls.receiveShadow = true;
+      houseGroup.add(walls);
+      
+      // Roof
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(width, depth) * 0.8, roofHeight, 4), roofMat);
+      roof.position.y = height + roofHeight / 2;
+      roof.rotation.y = Math.PI / 4;
+      roof.castShadow = true;
+      houseGroup.add(roof);
+      
+      // Create doors
+      const doorMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 });
+      const doorPositions = [
+        { x: 0, z: depth / 2 + 0.02, rotY: 0 }, // Front
+        { x: 0, z: -depth / 2 - 0.02, rotY: Math.PI }, // Back
+        { x: width / 2 + 0.02, z: 0, rotY: Math.PI / 2 }, // Right
+      ];
+      
+      for (let i = 0; i < doors && i < doorPositions.length; i++) {
+        const pos = doorPositions[i];
+        const doorGroup = new THREE.Group();
+        
+        // Door frame
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.8, 0.15), new THREE.MeshStandardMaterial({ color: 0x2d1f14 }));
+        frame.position.y = 1.4;
+        doorGroup.add(frame);
+        
+        // Door panel (the damageable part)
+        const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.5, 0.1), doorMat.clone());
+        doorPanel.position.y = 1.25;
+        doorPanel.position.z = 0.05;
+        doorGroup.add(doorPanel);
+        
+        doorGroup.position.set(pos.x, 0, pos.z);
+        doorGroup.rotation.y = pos.rotY;
+        houseGroup.add(doorGroup);
+        
+        houseDoors.push({
+          mesh: doorGroup,
+          panel: doorPanel,
+          health: doorHealth,
+          maxHealth: doorHealth,
+          destroyed: false,
+          side: i === 0 ? 'front' : i === 1 ? 'back' : 'right'
+        });
+      }
+      
+      // Create windows
+      const windowMat = new THREE.MeshStandardMaterial({ 
+        color: 0xffffcc, 
+        emissive: 0xffffaa, 
+        emissiveIntensity: 0.3,
+        transparent: true,
+        opacity: 0.8
+      });
+      
+      // Window positions distributed around the house
+      const windowPositions = [];
+      const windowsPerSide = Math.ceil(windows / 4);
+      
+      // Front windows
+      for (let i = 0; i < windowsPerSide; i++) {
+        const xOffset = (i - (windowsPerSide - 1) / 2) * 1.8;
+        if (Math.abs(xOffset) < width / 2 - 0.5) {
+          windowPositions.push({ x: xOffset, y: height * 0.6, z: depth / 2 + 0.02, rotY: 0 });
+        }
+      }
+      // Back windows
+      for (let i = 0; i < windowsPerSide; i++) {
+        const xOffset = (i - (windowsPerSide - 1) / 2) * 1.8;
+        if (Math.abs(xOffset) < width / 2 - 0.5) {
+          windowPositions.push({ x: xOffset, y: height * 0.6, z: -depth / 2 - 0.02, rotY: Math.PI });
+        }
+      }
+      // Side windows
+      for (let i = 0; i < windowsPerSide; i++) {
+        const zOffset = (i - (windowsPerSide - 1) / 2) * 2;
+        if (Math.abs(zOffset) < depth / 2 - 1) {
+          windowPositions.push({ x: width / 2 + 0.02, y: height * 0.6, z: zOffset, rotY: Math.PI / 2 });
+          windowPositions.push({ x: -width / 2 - 0.02, y: height * 0.6, z: zOffset, rotY: -Math.PI / 2 });
+        }
+      }
+      
+      for (let i = 0; i < windows && i < windowPositions.length; i++) {
+        const pos = windowPositions[i];
+        const windowGroup = new THREE.Group();
+        
+        // Window frame
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 0.1), new THREE.MeshStandardMaterial({ color: 0x2d1f14 }));
+        windowGroup.add(frame);
+        
+        // Window glass (damageable)
+        const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), windowMat.clone());
+        glass.position.z = 0.06;
+        windowGroup.add(glass);
+        
+        windowGroup.position.set(pos.x, pos.y, pos.z);
+        windowGroup.rotation.y = pos.rotY;
+        houseGroup.add(windowGroup);
+        
+        houseWindows.push({
+          mesh: windowGroup,
+          glass: glass,
+          health: windowHealth,
+          maxHealth: windowHealth,
+          destroyed: false
+        });
+      }
+      
+      // Store house data for collision detection
+      houseGroup.userData = {
+        width, depth, height,
+        level,
+        upgradeKey
+      };
+      
+      currentHouseLevel = level;
+    };
+    
+    // Create initial house
+    createHouse(0);
+    houseGroup.position.set(0, 0, 0);
+    scene.add(houseGroup);
 
     // Player
     const playerGroup = new THREE.Group();
@@ -705,7 +1012,22 @@ export default function TurkeyTrotDefensePhase5() {
     // Game state
     const state = {
       started: false, gameOver: false, paused: false, endlessMode: false,
-      player: { pos: new THREE.Vector3(0, 0, 10), rot: 0, pitch: 0 },
+      player: { 
+        pos: new THREE.Vector3(0, 0, 10), 
+        rot: 0, 
+        pitch: 0,
+        health: 100,
+        maxHealth: 100,
+        isInside: false,
+        invulnTimer: 0 // Brief invulnerability after taking damage
+      },
+      house: { 
+        level: 0,
+        pos: new THREE.Vector3(0, 0, 0),
+        doors: houseDoors,
+        windows: houseWindows
+      },
+      // Keep barn reference for compatibility but it now refers to house position
       barn: { health: 175, maxHealth: 175, pos: new THREE.Vector3(0, 0, 0) },
       turkeys: [], projectiles: [], turrets: [], turretProjectiles: [],
       wave: 0, toSpawn: 0, spawnTimer: 0, currency: 100, score: 0,
@@ -713,11 +1035,11 @@ export default function TurkeyTrotDefensePhase5() {
       input: { w: false, a: false, s: false, d: false, firing: false, panUp: false, panDown: false, panLeft: false, panRight: false },
       aim: new THREE.Vector3(), shakeIntensity: 0, shakeDuration: 0,
       pointerLocked: false,
-      waveComplete: false, waveComp: {}, waveStartHealth: 175,
+      waveComplete: false, waveComp: {}, waveStartHealth: 100,
       waveTransitionTimer: 0, waveTransitionDelay: 0,
       globalFreeze: 0, rageActive: 0, pendingAirstrike: null,
       gameStartTime: 0, waveStartTime: 0,
-      upgrades: { barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 }
+      upgrades: { houseArmor: 0, weaponDamage: 0, fireRate: 0, playerHealth: 0 }
     };
     stateRef.current = state;
 
@@ -1118,9 +1440,50 @@ export default function TurkeyTrotDefensePhase5() {
         if (e.code === 'KeyB') { setShopOpen(p => !p); setTurretMenuOpen(false); audioManager.playSound('click'); }
         if (e.code === 'KeyT') { setTurretMenuOpen(p => !p); setShopOpen(false); audioManager.playSound('click'); }
         if (e.code === 'KeyQ') { useAbility('AIRSTRIKE'); }
-        if (e.code === 'KeyE') { useAbility('FREEZE'); }
+        if (e.code === 'KeyX') { useAbility('FREEZE'); }
         if (e.code === 'KeyR') { useAbility('RAGE'); }
         if (e.code === 'KeyF') { useAbility('REPAIR'); }
+        
+        // E key - Enter/Exit house
+        if (e.code === 'KeyE') {
+          const houseData = houseGroup.userData;
+          const distToHouse = state.player.pos.distanceTo(state.house.pos);
+          
+          if (state.player.isInside) {
+            // Exit house - find an open door to exit through
+            const openDoor = houseDoors.find(d => d.destroyed);
+            if (openDoor) {
+              state.player.isInside = false;
+              // Position player outside the door
+              const doorWorldPos = new THREE.Vector3();
+              openDoor.mesh.getWorldPosition(doorWorldPos);
+              const exitDir = doorWorldPos.clone().sub(state.house.pos).normalize();
+              state.player.pos.copy(state.house.pos).add(exitDir.multiplyScalar(houseData.depth / 2 + 2));
+              playerGroup.position.copy(state.player.pos);
+              audioManager.playSound('click');
+              setBanner('Exited house');
+              setTimeout(() => setBanner(''), 1500);
+            } else {
+              setBanner('All doors are locked! Break one down or wait for turkeys');
+              setTimeout(() => setBanner(''), 2000);
+            }
+          } else {
+            // Enter house - check if near a door and door has path
+            const frontDoor = houseDoors[0];
+            if (frontDoor && distToHouse < houseData.depth / 2 + 3) {
+              state.player.isInside = true;
+              state.player.pos.set(0, 0, 0); // Center of house
+              playerGroup.position.copy(state.player.pos);
+              audioManager.playSound('click');
+              setBanner('Entered house - You are safe inside!');
+              setTimeout(() => setBanner(''), 2000);
+            } else {
+              setBanner('Get closer to the door to enter (E)');
+              setTimeout(() => setBanner(''), 1500);
+            }
+          }
+        }
+        
         if (e.code === 'Space' || e.code === 'KeyN') {
           if (state.waveComplete && !state.gameOver) {
             setBanner('');
@@ -1489,12 +1852,24 @@ export default function TurkeyTrotDefensePhase5() {
         }
       }
 
-      // Update Turkeys
+      // Update Turkeys - They chase the player!
       for (const tk of state.turkeys) {
         if (tk.dead) continue;
 
-        // Move towards barn
-        const dir = new THREE.Vector3().subVectors(state.barn.pos, tk.pos).normalize();
+        // Determine target: player if outside, house if player is inside
+        let targetPos;
+        let targetIsHouse = false;
+        
+        if (state.player.isInside) {
+          // Player is inside house - turkeys attack the house
+          targetPos = state.house.pos.clone();
+          targetIsHouse = true;
+        } else {
+          // Player is outside - turkeys chase player directly
+          targetPos = state.player.pos.clone();
+        }
+        
+        const dir = new THREE.Vector3().subVectors(targetPos, tk.pos).normalize();
         let speed = tk.spd * (tk.slowMult || 1);
         if (tk.slowTimer > 0) {
           tk.slowTimer -= dt;
@@ -1509,30 +1884,131 @@ export default function TurkeyTrotDefensePhase5() {
 
         tk.pos.add(dir.multiplyScalar(speed * dt));
         tk.mesh.position.copy(tk.pos);
-        tk.mesh.lookAt(state.barn.pos);
+        tk.mesh.lookAt(targetPos);
 
         // Bobbing animation
         tk.mesh.position.y = Math.abs(Math.sin(t * 10)) * 0.5;
 
-        // Barn collision
-        const distToBarn = tk.pos.length();
-        if (distToBarn < 3) {
-          state.barn.health -= tk.dmg * (1 - (state.upgrades?.barnArmor || 0) * 0.1);
-          audioManager.playSound('hurt');
-          removeTurkey(state.turkeys.indexOf(tk));
-          emitParticles(tk.pos.clone(), 10, 0xff0000, { x: 2, y: 4, z: 2 }, 0.5);
-
-          if (state.barn.health <= 0) {
-            state.barn.health = 0;
-            setGameOver(true);
-            state.gameOver = true;
-            // Update high score if current score is higher
-            if (state.score > (savedData.current.playerStats.highScore || 0)) {
-              setHighScore(state.score);
+        const houseData = houseGroup.userData;
+        
+        if (targetIsHouse) {
+          // Turkey attacking house - find nearest door or window to attack
+          const distToHouse = tk.pos.distanceTo(state.house.pos);
+          const houseRadius = Math.max(houseData.width, houseData.depth) / 2 + 1;
+          
+          if (distToHouse < houseRadius) {
+            if (!tk.attackCooldown || tk.attackCooldown <= 0) {
+              tk.attackCooldown = 1.0;
+              
+              // Find nearest undestroyed door or window to attack
+              let nearestEntry = null;
+              let nearestDist = Infinity;
+              
+              for (const door of houseDoors) {
+                if (!door.destroyed) {
+                  const doorWorldPos = new THREE.Vector3();
+                  door.mesh.getWorldPosition(doorWorldPos);
+                  const dist = tk.pos.distanceTo(doorWorldPos);
+                  if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearestEntry = { type: 'door', obj: door };
+                  }
+                }
+              }
+              
+              for (const win of houseWindows) {
+                if (!win.destroyed) {
+                  const winWorldPos = new THREE.Vector3();
+                  win.mesh.getWorldPosition(winWorldPos);
+                  const dist = tk.pos.distanceTo(winWorldPos);
+                  if (dist < nearestDist) {
+                    nearestDist = dist;
+                    nearestEntry = { type: 'window', obj: win };
+                  }
+                }
+              }
+              
+              if (nearestEntry) {
+                const dmg = tk.dmg * (1 - (state.upgrades?.houseArmor || 0) * 0.1);
+                nearestEntry.obj.health -= dmg;
+                audioManager.playSound('hurt');
+                emitParticles(tk.pos.clone(), 5, 0x8b4513, { x: 1, y: 2, z: 1 }, 0.3);
+                
+                // Visual feedback - flash red
+                if (nearestEntry.type === 'door') {
+                  nearestEntry.obj.panel.material.color.set(0xff0000);
+                  setTimeout(() => { 
+                    if (nearestEntry.obj.panel) nearestEntry.obj.panel.material.color.set(0x3d2817); 
+                  }, 100);
+                } else {
+                  nearestEntry.obj.glass.material.color.set(0xff6666);
+                  setTimeout(() => { 
+                    if (nearestEntry.obj.glass) nearestEntry.obj.glass.material.color.set(0xffffcc); 
+                  }, 100);
+                }
+                
+                // Check if entry is destroyed
+                if (nearestEntry.obj.health <= 0) {
+                  nearestEntry.obj.destroyed = true;
+                  nearestEntry.obj.health = 0;
+                  
+                  // Visual: make it look broken
+                  if (nearestEntry.type === 'door') {
+                    nearestEntry.obj.panel.visible = false;
+                    emitParticles(tk.pos.clone(), 15, 0x3d2817, { x: 3, y: 4, z: 3 }, 0.6);
+                  } else {
+                    nearestEntry.obj.glass.visible = false;
+                    emitParticles(tk.pos.clone(), 10, 0xffffcc, { x: 2, y: 3, z: 2 }, 0.4);
+                  }
+                  audioManager.playSound('explosion');
+                  setBanner(`${nearestEntry.type === 'door' ? 'Door' : 'Window'} destroyed!`);
+                  setTimeout(() => setBanner(''), 1500);
+                }
+              }
             }
-            audioManager.playSound('gameover');
+          }
+        } else {
+          // Turkey chasing player directly
+          const distToPlayer = tk.pos.distanceTo(state.player.pos);
+          
+          if (distToPlayer < 1.5) {
+            // Attack player!
+            if (!tk.attackCooldown || tk.attackCooldown <= 0) {
+              tk.attackCooldown = 1.2;
+              
+              if (state.player.invulnTimer <= 0) {
+                const dmg = tk.dmg;
+                state.player.health -= dmg;
+                state.player.invulnTimer = 0.5; // Brief invulnerability
+                audioManager.playSound('hurt');
+                emitParticles(state.player.pos.clone().setY(1), 10, 0xff0000, { x: 2, y: 3, z: 2 }, 0.4);
+                state.shakeIntensity = 0.5;
+                state.shakeDuration = 0.2;
+                
+                // Flash player red
+                playerGroup.children.forEach(c => {
+                  if (c.material) {
+                    const origColor = c.material.color.getHex();
+                    c.material.color.set(0xff0000);
+                    setTimeout(() => { if (c.material) c.material.color.setHex(origColor); }, 150);
+                  }
+                });
+                
+                if (state.player.health <= 0) {
+                  state.player.health = 0;
+                  setGameOver(true);
+                  state.gameOver = true;
+                  if (state.score > (savedData.current.playerStats.highScore || 0)) {
+                    setHighScore(state.score);
+                  }
+                  audioManager.playSound('gameover');
+                }
+              }
+            }
           }
         }
+        
+        if (tk.attackCooldown > 0) tk.attackCooldown -= dt;
 
         // Turkey attacks nearby turrets (TANK and BOSS types)
         if ((tk.type === 'TANK' || tk.type === 'BOSS') && !tk.dead) {
@@ -1540,15 +2016,20 @@ export default function TurkeyTrotDefensePhase5() {
             const distToTurret = tk.pos.distanceTo(turret.mesh.position);
             if (distToTurret < 2.5) {
               // Attack turret if close enough
-              if (!tk.attackCooldown || tk.attackCooldown <= 0) {
+              if (!tk.turretAttackCooldown || tk.turretAttackCooldown <= 0) {
                 const damage = tk.dmg * 0.5; // Turrets take reduced damage
                 damageManager.applyDamage(turret, damage, DamageType.PHYSICAL, tk);
-                tk.attackCooldown = 1.5; // Attack every 1.5 seconds
+                tk.turretAttackCooldown = 1.5; // Attack every 1.5 seconds
               }
             }
           }
-          if (tk.attackCooldown > 0) tk.attackCooldown -= dt;
+          if (tk.turretAttackCooldown > 0) tk.turretAttackCooldown -= dt;
         }
+      }
+      
+      // Update player invulnerability timer
+      if (state.player.invulnTimer > 0) {
+        state.player.invulnTimer -= dt;
       }
 
       // Player Shooting
@@ -1862,11 +2343,30 @@ export default function TurkeyTrotDefensePhase5() {
         setBanner(`Wave Complete! +${bonus} 🌽`);
         audioManager.playSound('wave');
         setWaitingForNextWave(true);
-      }        // Update HUD
-      const hp = state.barn.health / state.barn.maxHealth;
-      barnBase.material.color.setHex(hp < 0.25 ? 0x5a0000 : hp < 0.5 ? 0x7a0000 : 0x8b0000);
-      setLowHealth(hp < 0.25);
-      setStats({ health: Math.round(hp * 100), currency: state.currency, wave: state.wave, enemies: state.turkeys.length + state.toSpawn, score: state.score });
+      }
+      
+      // Update HUD - now shows player health
+      const playerHp = state.player.health / state.player.maxHealth;
+      setLowHealth(playerHp < 0.25);
+      
+      // Calculate house integrity (average of all doors/windows health)
+      let houseIntegrity = 100;
+      if (houseDoors.length > 0 || houseWindows.length > 0) {
+        const allEntries = [...houseDoors, ...houseWindows];
+        const totalHealth = allEntries.reduce((sum, e) => sum + (e.destroyed ? 0 : e.health), 0);
+        const maxHealth = allEntries.reduce((sum, e) => sum + e.maxHealth, 0);
+        houseIntegrity = Math.round((totalHealth / maxHealth) * 100);
+      }
+      
+      setStats({ 
+        health: Math.round(playerHp * 100), 
+        currency: state.currency, 
+        wave: state.wave, 
+        enemies: state.turkeys.length + state.toSpawn, 
+        score: state.score,
+        houseIntegrity,
+        isInside: state.player.isInside
+      });
 
       renderer.render(scene, camera);
     };
@@ -1885,7 +2385,57 @@ export default function TurkeyTrotDefensePhase5() {
         }
       },
       setWeapon: (key) => { state.currentWeapon = key; setWeapon(WeaponTypes[key]); audioManager.playSound('click'); },
-      repair: () => { if (state.currency >= 50) { state.currency -= 50; state.barn.health = Math.min(state.barn.maxHealth, state.barn.health + state.barn.maxHealth * 0.25); audioManager.playSound('purchase'); } },
+      repairHouse: () => { 
+        if (state.currency >= 50) { 
+          state.currency -= 50;
+          // Repair all doors and windows by 50%
+          houseDoors.forEach(door => {
+            if (!door.destroyed) {
+              door.health = Math.min(door.maxHealth, door.health + door.maxHealth * 0.5);
+            } else {
+              // Rebuild destroyed door
+              door.health = door.maxHealth * 0.5;
+              door.destroyed = false;
+              if (door.panel) door.panel.visible = true;
+            }
+          });
+          houseWindows.forEach(win => {
+            if (!win.destroyed) {
+              win.health = Math.min(win.maxHealth, win.health + win.maxHealth * 0.5);
+            } else {
+              // Rebuild destroyed window
+              win.health = win.maxHealth * 0.5;
+              win.destroyed = false;
+              if (win.glass) win.glass.visible = true;
+            }
+          });
+          audioManager.playSound('purchase'); 
+        } 
+      },
+      upgradeHouse: () => {
+        const nextLevel = state.upgrades.houseLevel + 1;
+        const nextHouseKey = Object.keys(HouseUpgrades)[nextLevel];
+        if (!nextHouseKey) return false;
+        
+        const nextHouse = HouseUpgrades[nextHouseKey];
+        if (state.currency >= nextHouse.cost) {
+          state.currency -= nextHouse.cost;
+          createHouse(nextLevel);
+          state.house.level = nextLevel;
+          state.house.doors = houseDoors;
+          state.house.windows = houseWindows;
+          setUpgrades(prev => {
+            const newUpgrades = { ...prev, houseLevel: nextLevel };
+            state.upgrades = newUpgrades;
+            return newUpgrades;
+          });
+          audioManager.playSound('purchase');
+          setBanner(`House upgraded to ${nextHouse.name}!`);
+          setTimeout(() => setBanner(''), 2000);
+          return true;
+        }
+        return false;
+      },
       nextWave: () => {
         if (state.waveComplete && !state.gameOver) {
           setBanner('');
@@ -1902,7 +2452,10 @@ export default function TurkeyTrotDefensePhase5() {
             state.upgrades = newUpgrades;
             return newUpgrades;
           });
-          if (type === 'maxHealth') { state.barn.maxHealth += 30; state.barn.health += 30; }
+          if (type === 'playerHealth') { 
+            state.player.maxHealth += 20; 
+            state.player.health += 20; 
+          }
           audioManager.playSound('purchase');
           return true;
         }
@@ -1917,14 +2470,24 @@ export default function TurkeyTrotDefensePhase5() {
 
         state.turkeys = []; state.projectiles = []; state.turretProjectiles = []; state.turrets = [];
         state.wave = 0; state.toSpawn = 0; state.currency = 100; state.score = 0;
-        state.barn.health = 175; state.barn.maxHealth = 175;
+        
+        // Reset player state
+        state.player.health = 100; state.player.maxHealth = 100;
+        state.player.isInside = false; state.player.invulnTimer = 0;
+        state.player.pos.set(0, 0, 10);
+        playerGroup.position.copy(state.player.pos);
+        
+        // Reset house
+        createHouse(0);
+        state.house.level = 0;
+        state.house.doors = houseDoors;
+        state.house.windows = houseWindows;
+        
         state.gameOver = false; state.waveComplete = false;
         state.waveTransitionTimer = 0; state.waveTransitionDelay = 0;
         state.currentWeapon = 'PITCHFORK';
-        state.player.pos.set(0, 0, 10);
-        playerGroup.position.copy(state.player.pos);
         state.globalFreeze = 0; state.rageActive = 0;
-        state.upgrades = { barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 };
+        state.upgrades = { houseArmor: 0, weaponDamage: 0, fireRate: 0, playerHealth: 0, houseLevel: 0 };
 
         // Clear spatial indices and building validator
         turkeyGrid.clear();
@@ -1936,7 +2499,7 @@ export default function TurkeyTrotDefensePhase5() {
         clearSessionData();
 
         Object.keys(spawnedCounts).forEach(k => spawnedCounts[k] = 0);
-        setUpgrades({ barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 });
+        setUpgrades({ houseArmor: 0, weaponDamage: 0, fireRate: 0, playerHealth: 0, houseLevel: 0 });
         setTurrets([]);
         setWeapon(WeaponTypes.PITCHFORK);
         setGameOver(false);
@@ -2005,7 +2568,7 @@ export default function TurkeyTrotDefensePhase5() {
         state.score = session.score;
         state.barn.health = session.barnHealth;
         state.barn.maxHealth = session.barnMaxHealth;
-        state.upgrades = session.upgrades || { barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 };
+        state.upgrades = session.upgrades || { houseArmor: 0, weaponDamage: 0, fireRate: 0, playerHealth: 0, houseLevel: 0 };
         state.endlessMode = session.endlessMode || false;
         state.started = true;
         state.gameOver = false;
@@ -2102,13 +2665,26 @@ export default function TurkeyTrotDefensePhase5() {
   const healthColor = stats.health < 25 ? '#ff4444' : stats.health < 50 ? '#ffa500' : '#4CAF50';
   const weaponKeys = Object.keys(WeaponTypes);
 
+  // Get current house upgrade info
+  const currentHouseKey = Object.keys(HouseUpgrades)[upgrades.houseLevel] || 'BASIC';
+  const nextHouseKey = Object.keys(HouseUpgrades)[upgrades.houseLevel + 1];
+  const nextHouse = nextHouseKey ? HouseUpgrades[nextHouseKey] : null;
+
   // Shop items
   const shopItems = [
-    { id: 'repair', name: 'Repair Barn', icon: '🔧', cost: 50, desc: 'Restore 25% barn health', action: () => gameRef.current?.repair() },
-    { id: 'barnArmor', name: 'Barn Armor', icon: '🛡️', cost: 80 + upgrades.barnArmor * 60, desc: `-10% damage (Lvl ${upgrades.barnArmor})`, max: 5, current: upgrades.barnArmor, action: () => gameRef.current?.buyUpgrade('barnArmor', 80 + upgrades.barnArmor * 60) },
+    { id: 'repairHouse', name: 'Repair House', icon: '🔧', cost: 50, desc: 'Repair doors & windows 50%', action: () => gameRef.current?.repairHouse() },
+    { id: 'houseArmor', name: 'Reinforce House', icon: '🛡️', cost: 80 + upgrades.houseArmor * 60, desc: `-10% door/window damage (Lvl ${upgrades.houseArmor})`, max: 5, current: upgrades.houseArmor, action: () => gameRef.current?.buyUpgrade('houseArmor', 80 + upgrades.houseArmor * 60) },
     { id: 'weaponDamage', name: 'Weapon Power', icon: '⚔️', cost: 100 + upgrades.weaponDamage * 80, desc: `+15% damage (Lvl ${upgrades.weaponDamage})`, max: 5, current: upgrades.weaponDamage, action: () => gameRef.current?.buyUpgrade('weaponDamage', 100 + upgrades.weaponDamage * 80) },
     { id: 'fireRate', name: 'Fire Rate', icon: '🔥', cost: 90 + upgrades.fireRate * 70, desc: `+10% fire rate (Lvl ${upgrades.fireRate})`, max: 5, current: upgrades.fireRate, action: () => gameRef.current?.buyUpgrade('fireRate', 90 + upgrades.fireRate * 70) },
-    { id: 'maxHealth', name: 'Fortify Barn', icon: '🏠', cost: 120 + upgrades.maxHealth * 90, desc: `+30 max HP (Lvl ${upgrades.maxHealth})`, max: 5, current: upgrades.maxHealth, action: () => gameRef.current?.buyUpgrade('maxHealth', 120 + upgrades.maxHealth * 90) },
+    { id: 'playerHealth', name: 'Health Boost', icon: '❤️', cost: 100 + upgrades.playerHealth * 80, desc: `+20 max HP (Lvl ${upgrades.playerHealth})`, max: 5, current: upgrades.playerHealth, action: () => gameRef.current?.buyUpgrade('playerHealth', 100 + upgrades.playerHealth * 80) },
+    ...(nextHouse ? [{
+      id: 'upgradeHouse', 
+      name: `Upgrade to ${nextHouse.name}`, 
+      icon: '🏠', 
+      cost: nextHouse.cost, 
+      desc: `${nextHouse.doors} doors, ${nextHouse.windows} windows`, 
+      action: () => gameRef.current?.upgradeHouse()
+    }] : [])
   ];
 
   return (
@@ -2168,9 +2744,10 @@ export default function TurkeyTrotDefensePhase5() {
 
       {/* Top HUD */}
       <div className="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
-        <div className="bg-black/60 backdrop-blur rounded-xl p-4 min-w-72">
+        <div className="bg-black/60 backdrop-blur rounded-xl p-4 min-w-80">
+          {/* Player Health */}
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">🏠</span>
+            <span className="text-2xl">❤️</span>
             <div className="flex-1">
               <div className="h-4 bg-gray-700 rounded-full overflow-hidden">
                 <div className="h-full transition-all duration-300 rounded-full" style={{ width: `${stats.health}%`, backgroundColor: healthColor }} />
@@ -2178,11 +2755,26 @@ export default function TurkeyTrotDefensePhase5() {
             </div>
             <span className="text-white font-bold min-w-12 text-right">{stats.health}%</span>
           </div>
-          <div className="flex gap-4 text-white text-sm">
+          {/* House Integrity */}
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-2xl">🏠</span>
+            <div className="flex-1">
+              <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full transition-all duration-300 rounded-full" style={{ 
+                  width: `${stats.houseIntegrity}%`, 
+                  backgroundColor: stats.houseIntegrity < 25 ? '#ff4444' : stats.houseIntegrity < 50 ? '#ffa500' : '#8B4513' 
+                }} />
+              </div>
+            </div>
+            <span className="text-white font-bold min-w-12 text-right text-sm">{stats.houseIntegrity}%</span>
+          </div>
+          <div className="flex gap-4 text-white text-sm flex-wrap">
             <span>🌽 {stats.currency}</span>
             <span>🌊 Wave {stats.wave}</span>
             <span>🦃 {stats.enemies}</span>
             <span>⭐ {stats.score}</span>
+            {stats.isInside && <span className="text-green-400">🏠 Inside</span>}
+            {!stats.isInside && <span className="text-yellow-400">🌲 Outside</span>}
             {endlessMode && <span className="text-purple-400">♾️ Endless</span>}
           </div>
         </div>
@@ -2246,7 +2838,7 @@ export default function TurkeyTrotDefensePhase5() {
                   </div>
                 )}
                 <span className="absolute -right-1 -top-1 text-xs bg-gray-800 px-1 rounded text-gray-400">
-                  {key === 'AIRSTRIKE' ? 'Q' : key === 'FREEZE' ? 'E' : key === 'RAGE' ? 'R' : 'F'}
+                  {key === 'AIRSTRIKE' ? 'Q' : key === 'FREEZE' ? 'X' : key === 'RAGE' ? 'R' : 'F'}
                 </span>
               </button>
             );
@@ -2538,15 +3130,24 @@ export default function TurkeyTrotDefensePhase5() {
             <div className="space-y-4 text-gray-300">
               <div>
                 <h3 className="text-yellow-400 font-bold mb-1">🎯 Objective</h3>
-                <p>Defend your barn from waves of turkeys! Use weapons, turrets, and abilities to survive.</p>
+                <p>Survive the turkey invasion! Turkeys will chase you - hide in your house for protection, but they can break in through doors and windows!</p>
+              </div>
+              <div>
+                <h3 className="text-yellow-400 font-bold mb-1">🏠 House System</h3>
+                <div className="text-sm space-y-1">
+                  <p><span className="text-white">E near door</span> - Enter/Exit house</p>
+                  <p><span className="text-white">Inside = Safe</span> - Turkeys must break doors/windows</p>
+                  <p><span className="text-white">Upgrade house</span> - More doors, windows, durability</p>
+                </div>
               </div>
               <div>
                 <h3 className="text-yellow-400 font-bold mb-1">🎮 Controls</h3>
                 <div className="text-sm space-y-1">
                   <p><span className="text-white">WASD</span> - Move</p>
                   <p><span className="text-white">Mouse</span> - Aim & Shoot</p>
+                  <p><span className="text-white">E</span> - Enter/Exit house</p>
                   <p><span className="text-white">1-4</span> - Switch weapons</p>
-                  <p><span className="text-white">Q/E/R/F</span> - Use abilities</p>
+                  <p><span className="text-white">Q/X/R/F</span> - Use abilities</p>
                   <p><span className="text-white">T</span> - Turret menu</p>
                   <p><span className="text-white">B</span> - Shop</p>
                 </div>
@@ -2555,17 +3156,17 @@ export default function TurkeyTrotDefensePhase5() {
                 <h3 className="text-yellow-400 font-bold mb-1">✨ Abilities</h3>
                 <div className="text-sm space-y-1">
                   <p><span className="text-white">💣 Turkey Bomb (Q)</span> - Airstrike at cursor</p>
-                  <p><span className="text-white">❄️ Frost Nova (E)</span> - Freeze all enemies</p>
+                  <p><span className="text-white">❄️ Frost Nova (X)</span> - Freeze all enemies</p>
                   <p><span className="text-white">🔥 Harvest Rage (R)</span> - 2x damage & fire rate</p>
-                  <p><span className="text-white">🔧 Emergency Repair (F)</span> - Heal 50% barn health</p>
+                  <p><span className="text-white">🔧 Emergency Repair (F)</span> - Repair doors/windows</p>
                 </div>
               </div>
               <div>
                 <h3 className="text-yellow-400 font-bold mb-1">🦃 Enemy Types</h3>
                 <div className="text-sm space-y-1">
-                  <p><span className="text-white">Standard</span> - Basic enemy</p>
+                  <p><span className="text-white">Standard</span> - Chases you directly</p>
                   <p><span className="text-white">Runner</span> - Fast but weak</p>
-                  <p><span className="text-white">Tank</span> - Slow but tough</p>
+                  <p><span className="text-white">Tank</span> - Slow but tough, attacks turrets</p>
                   <p><span className="text-white">Healer</span> - Heals nearby turkeys</p>
                   <p><span className="text-white">Splitter</span> - Splits into smaller turkeys</p>
                   <p><span className="text-white">Boss</span> - Very tough with phases!</p>
