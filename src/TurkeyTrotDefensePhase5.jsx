@@ -2,8 +2,14 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import * as Tone from 'tone';
 
+// Import engine modules (Skills-based architecture)
+import { SpatialHashGrid2D } from './engine/SpatialHashGrid2D.js';
+import { BuildingValidator, ValidationMode } from './engine/BuildingValidator.js';
+import { DamageManager, DamageVisualizer, DamageState, DamageType } from './engine/DamageManager.js';
+import { StabilityOptimizer, UpdatePriority } from './engine/StabilityOptimizer.js';
+
 // ============================================================================
-// PHASE 5: ADVANCED GAMEPLAY SYSTEMS
+// PHASE 5: ADVANCED GAMEPLAY SYSTEMS + ENGINE INTEGRATION
 // ============================================================================
 // New Features:
 // - Placeable defensive turrets (3 types)
@@ -60,17 +66,17 @@ const TurkeyTypes = {
 const TurretTypes = {
   BASIC: {
     name: 'Scarecrow Turret', icon: '🧑‍🌾', cost: 100,
-    damage: 15, fireRate: 1.5, range: 8, color: 0xdaa520,
+    damage: 15, fireRate: 1.5, range: 8, color: 0xdaa520, health: 80,
     description: 'Basic auto-targeting turret'
   },
   SLOW: {
     name: 'Frost Sprinkler', icon: '❄️', cost: 150,
-    damage: 5, fireRate: 2.0, range: 6, slow: 0.5, slowDuration: 2, color: 0x88ccff,
+    damage: 5, fireRate: 2.0, range: 6, slow: 0.5, slowDuration: 2, color: 0x88ccff, health: 60,
     description: 'Slows enemies in range'
   },
   EXPLOSIVE: {
     name: 'Corn Silo', icon: '🌾', cost: 200,
-    damage: 40, fireRate: 0.5, range: 10, splash: 3, color: 0xffd700,
+    damage: 40, fireRate: 0.5, range: 10, splash: 3, color: 0xffd700, health: 100,
     description: 'Explosive area damage'
   }
 };
@@ -233,6 +239,7 @@ const audioManager = new AudioManager();
 // SAVE/LOAD SYSTEM
 // =========================
 const SAVE_KEY = 'turkeyTrotDefense_saveData';
+const SESSION_KEY = 'turkeyTrotDefense_sessionData';
 
 const getDefaultSaveData = () => ({
   playerStats: {
@@ -245,7 +252,7 @@ const getDefaultSaveData = () => ({
     masterVolume: 0.7, sfxVolume: 0.8, musicVolume: 0.5,
     muted: false, showFps: false, showMinimap: true
   },
-  version: 1
+  version: 2
 });
 
 const loadSaveData = () => {
@@ -259,7 +266,7 @@ const loadSaveData = () => {
         playerStats: { ...defaults.playerStats, ...data.playerStats },
         unlockedAchievements: data.unlockedAchievements || [],
         settings: { ...defaults.settings, ...data.settings },
-        version: data.version || 1
+        version: data.version || 2
       };
     }
   } catch (e) {
@@ -274,12 +281,79 @@ const saveGameData = (playerStats, unlockedAchievements, settings) => {
       playerStats,
       unlockedAchievements,
       settings,
-      version: 1,
+      version: 2,
       lastSaved: new Date().toISOString()
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
   } catch (e) {
     console.warn('Failed to save game data:', e);
+  }
+};
+
+/**
+ * Save current game session (turrets, wave, currency, etc.)
+ * This allows resuming a game after closing the browser
+ */
+const saveSessionData = (sessionState) => {
+  try {
+    const data = {
+      wave: sessionState.wave,
+      currency: sessionState.currency,
+      score: sessionState.score,
+      barnHealth: sessionState.barnHealth,
+      barnMaxHealth: sessionState.barnMaxHealth,
+      upgrades: sessionState.upgrades,
+      endlessMode: sessionState.endlessMode,
+      turrets: sessionState.turrets.map(t => ({
+        id: t.id,
+        type: t.type,
+        position: { x: t.pos.x, y: t.pos.y, z: t.pos.z },
+        health: t.health,
+        maxHealth: t.maxHealth
+      })),
+      buildingGraph: sessionState.buildingGraph,
+      damageStates: sessionState.damageStates,
+      timestamp: Date.now()
+    };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+    return true;
+  } catch (e) {
+    console.warn('Failed to save session data:', e);
+    return false;
+  }
+};
+
+/**
+ * Load saved game session
+ * Returns null if no session or session is too old (> 24 hours)
+ */
+const loadSessionData = () => {
+  try {
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      // Expire sessions older than 24 hours
+      const maxAge = 24 * 60 * 60 * 1000;
+      if (Date.now() - data.timestamp > maxAge) {
+        localStorage.removeItem(SESSION_KEY);
+        return null;
+      }
+      return data;
+    }
+  } catch (e) {
+    console.warn('Failed to load session data:', e);
+  }
+  return null;
+};
+
+/**
+ * Clear saved session data
+ */
+const clearSessionData = () => {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch (e) {
+    console.warn('Failed to clear session data:', e);
   }
 };
 
@@ -647,6 +721,82 @@ export default function TurkeyTrotDefensePhase5() {
     };
     stateRef.current = state;
 
+    // =========================================================================
+    // SPATIAL INDEXING (Skills Integration)
+    // =========================================================================
+    // SpatialHashGrid2D provides O(1) collision queries instead of O(N²)
+    // This allows the game to scale to 500+ turkeys without frame drops
+    const turkeyGrid = new SpatialHashGrid2D(5); // 5-unit cell size
+    
+    // Building validation for turret placement
+    const buildingValidator = new BuildingValidator({
+      mode: ValidationMode.SIMPLE,
+      minDistanceFromBarn: 5,
+      maxDistanceFromBarn: 35
+    });
+
+    // Stability optimizer - provides caching and batch updates for large turret counts
+    const stabilityOptimizer = new StabilityOptimizer(buildingValidator, {
+      maxCacheAge: 5000,      // 5 second cache
+      maxCacheSize: 1000,     // Up to 1000 cached entries
+      batchSize: 20,          // Process 20 pieces per frame
+      immediateBatchSize: 5   // Process 5 immediate updates per frame
+    });
+
+    // Damage system for turrets - handles damage states, visual feedback, and cascading destruction
+    const damageManager = new DamageManager(buildingValidator, {
+      cascadeDamagePercent: 0.15,
+      cascadeRadius: 2.5,
+      collapseDelay: 100,
+      scene: scene,
+      onPieceDestroyed: (piece, result) => {
+        // Remove destroyed turret from state
+        const turretIndex = state.turrets.findIndex(t => t.id === piece.id);
+        if (turretIndex !== -1) {
+          const turret = state.turrets[turretIndex];
+          emitParticles(turret.mesh.position.clone(), 15, 0xff6600, { x: 3, y: 5, z: 3 }, 0.8);
+          audioManager.playSound('hurt');
+          // Remove mesh from scene
+          scene.remove(turret.mesh);
+          turret.mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+          // Notify stability optimizer of destruction
+          stabilityOptimizer.onPieceDestroyed({ id: piece.id, position: turret.pos });
+          state.turrets.splice(turretIndex, 1);
+          setTurrets([...state.turrets]);
+        }
+      },
+      onPieceDamaged: (piece, result) => {
+        // Visual feedback for turret damage
+        damageVisualizer.updateVisuals(piece, damageManager.getDamageable(piece));
+        
+        // Update health bar
+        const turret = state.turrets.find(t => t.id === piece.id);
+        if (turret && turret.healthBar && turret.healthBarFill) {
+          const healthPercent = result.newHealth / turret.maxHealth;
+          turret.healthBar.visible = healthPercent < 1; // Show only when damaged
+          turret.healthBarFill.scale.x = Math.max(0.01, healthPercent);
+          turret.healthBarFill.position.x = (healthPercent - 1) * 0.48; // Center the fill bar
+          
+          // Color based on health
+          if (healthPercent <= 0.25) {
+            turret.healthBarFill.material.color.setHex(0xff4444);
+          } else if (healthPercent <= 0.6) {
+            turret.healthBarFill.material.color.setHex(0xffaa44);
+          } else {
+            turret.healthBarFill.material.color.setHex(0x44ff44);
+          }
+          
+          // Make health bar face camera
+          turret.healthBar.lookAt(camera.position);
+        }
+        
+        if (result.newState === DamageState.CRITICAL) {
+          emitParticles(piece.mesh.position.clone(), 5, 0xff4400, { x: 1, y: 2, z: 1 }, 0.4);
+        }
+      }
+    });
+    const damageVisualizer = new DamageVisualizer();
+
     const raycaster = new THREE.Raycaster();
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const spawnedCounts = { STANDARD: 0, RUNNER: 0, TANK: 0, HEALER: 0, SPLITTER: 0, BOSS: 0 };
@@ -751,6 +901,26 @@ export default function TurkeyTrotDefensePhase5() {
       range.rotation.x = -Math.PI / 2; range.position.y = 0.02; range.visible = false;
       g.add(range);
 
+      // Health bar above turret (for damage visualization)
+      const healthBarGroup = new THREE.Group();
+      healthBarGroup.position.y = 2.0;
+      
+      const healthBarBg = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 0.12),
+        new THREE.MeshBasicMaterial({ color: 0x333333, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+      );
+      healthBarGroup.add(healthBarBg);
+      
+      const healthBarFill = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.96, 0.08),
+        new THREE.MeshBasicMaterial({ color: 0x44ff44, side: THREE.DoubleSide })
+      );
+      healthBarFill.position.z = 0.001;
+      healthBarGroup.add(healthBarFill);
+      
+      healthBarGroup.visible = false; // Only show when damaged
+      g.add(healthBarGroup);
+
       g.position.copy(pos);
       scene.add(g);
 
@@ -758,7 +928,9 @@ export default function TurkeyTrotDefensePhase5() {
         mesh: g, range, pos: pos.clone(), type,
         damage: stats.damage, fireRate: stats.fireRate, turretRange: stats.range,
         slow: stats.slow || 0, slowDuration: stats.slowDuration || 0,
-        splash: stats.splash || 0, lastFire: 0, target: null
+        splash: stats.splash || 0, lastFire: 0, target: null,
+        health: stats.health, maxHealth: stats.health, cooldown: 0,
+        healthBar: healthBarGroup, healthBarFill
       };
     };
 
@@ -964,7 +1136,15 @@ export default function TurkeyTrotDefensePhase5() {
           else if (turretMenuOpen) setTurretMenuOpen(false);
           else if (helpOpen) setHelpOpen(false);
           else if (achievementsOpen) setAchievementsOpen(false);
-          else { setPaused(p => !p); state.paused = !state.paused; }
+          else { 
+            const newPaused = !state.paused;
+            setPaused(newPaused); 
+            state.paused = newPaused;
+            // Auto-save when pausing (if game is in progress)
+            if (newPaused && state.started && !state.gameOver && state.wave > 0) {
+              gameRef.current?.saveSession();
+            }
+          }
           audioManager.playSound('click');
         }
 
@@ -997,20 +1177,50 @@ export default function TurkeyTrotDefensePhase5() {
       if (e.button === 0) {
         const currentPlacingTurret = placingTurretRef.current;
         if (currentPlacingTurret && turretPreview.visible) {
-          // Place turret - check valid placement distance
+          // Place turret - use BuildingValidator for structural validation
           const pos = turretPreview.position.clone();
-          const distToBarn = pos.length();
-          const canPlace = distToBarn > 5 && distToBarn < 35;
-          if (!canPlace) {
+          
+          // Generate unique ID for the turret
+          const turretId = `turret_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Validate placement using BuildingValidator
+          const validation = buildingValidator.validatePlacement({
+            id: turretId,
+            position: pos,
+            type: 'turret',
+            turretType: currentPlacingTurret,
+            isGrounded: true
+          });
+          
+          if (!validation.valid) {
             audioManager.playSound('hurt'); // Invalid placement feedback
+            // Could add visual feedback here: validation.reason
             return;
           }
+          
           const type = currentPlacingTurret;
           const cost = TurretTypes[type].cost;
           if (state.currency >= cost) {
             state.currency -= cost;
             const turret = createTurretMesh(pos, type);
+            turret.id = turretId; // Assign the generated ID
             state.turrets.push(turret);
+            
+            // Register with building validator for structural tracking
+            buildingValidator.addPiece({
+              id: turretId,
+              position: pos,
+              type: 'turret',
+              turretType: type,
+              isGrounded: true
+            });
+            
+            // Register with damage manager for health tracking
+            damageManager.registerPiece(turret, { maxHealth: TurretTypes[type].health });
+            
+            // Queue for stability calculation (will be processed in batches)
+            stabilityOptimizer.onPiecePlaced({ id: turretId, position: pos });
+            
             setTurrets([...state.turrets]);
             updatePlayerStats({ turretsPlaced: playerStats.turretsPlaced + 1 });
             audioManager.playSound('purchase');
@@ -1062,13 +1272,22 @@ export default function TurkeyTrotDefensePhase5() {
         raycaster.ray.intersectPlane(plane, state.aim);
       }
 
-      // Update turret preview
+      // Update turret preview - use BuildingValidator for validation
       const currentPlacingTurret = placingTurretRef.current;
       if (currentPlacingTurret) {
         turretPreview.position.copy(state.aim);
         turretPreview.position.y = 0;
-        const distToBarn = state.aim.length();
-        const canPlace = distToBarn > 5 && distToBarn < 35;
+        
+        // Use BuildingValidator to check if placement is valid
+        const previewValidation = buildingValidator.validatePlacement({
+          id: 'preview',
+          position: turretPreview.position.clone(),
+          type: 'turret',
+          turretType: currentPlacingTurret,
+          isGrounded: true
+        });
+        const canPlace = previewValidation.valid;
+        
         previewBase.material.color.setHex(canPlace ? 0x00ff00 : 0xff0000);
         previewRange.material.color.setHex(canPlace ? 0x00ff00 : 0xff0000);
         const range = TurretTypes[currentPlacingTurret].range;
@@ -1251,12 +1470,22 @@ export default function TurkeyTrotDefensePhase5() {
             const pos = new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
             const turkey = createTurkey(pos, type);
             state.turkeys.push(turkey);
+            // Insert into spatial grid for O(1) collision queries
+            turkeyGrid.insert(turkey, turkey.pos);
             state.toSpawn--;
 
             // Spawn delay based on wave density
             const baseDelay = Math.max(0.5, 2.5 - state.wave * 0.15);
             state.spawnTimer = baseDelay * (0.8 + Math.random() * 0.4);
           }
+        }
+      }
+
+      // Rebuild spatial grid after all turkey movements (more efficient than individual updates)
+      turkeyGrid.clear();
+      for (const tk of state.turkeys) {
+        if (!tk.dead) {
+          turkeyGrid.insert(tk, tk.pos);
         }
       }
 
@@ -1304,6 +1533,22 @@ export default function TurkeyTrotDefensePhase5() {
             audioManager.playSound('gameover');
           }
         }
+
+        // Turkey attacks nearby turrets (TANK and BOSS types)
+        if ((tk.type === 'TANK' || tk.type === 'BOSS') && !tk.dead) {
+          for (const turret of state.turrets) {
+            const distToTurret = tk.pos.distanceTo(turret.mesh.position);
+            if (distToTurret < 2.5) {
+              // Attack turret if close enough
+              if (!tk.attackCooldown || tk.attackCooldown <= 0) {
+                const damage = tk.dmg * 0.5; // Turrets take reduced damage
+                damageManager.applyDamage(turret, damage, DamageType.PHYSICAL, tk);
+                tk.attackCooldown = 1.5; // Attack every 1.5 seconds
+              }
+            }
+          }
+          if (tk.attackCooldown > 0) tk.attackCooldown -= dt;
+        }
       }
 
       // Player Shooting
@@ -1332,14 +1577,24 @@ export default function TurkeyTrotDefensePhase5() {
         state.shakeDuration = 0.1;
       }
 
-      // Turrets
+      // Turrets - Use spatial grid for efficient target finding
       state.turrets.forEach(turret => {
         if (turret.cooldown > 0) turret.cooldown -= dt;
 
-        let target = null;
-        let minDist = TurretTypes[turret.type].range;
+        // Update health bar to face camera
+        if (turret.healthBar && turret.healthBar.visible) {
+          turret.healthBar.lookAt(camera.position);
+        }
 
-        for (const tk of state.turkeys) {
+        const turretRange = TurretTypes[turret.type].range;
+        
+        // Use spatial grid to find nearby turkeys (O(1) instead of O(N))
+        const nearbyTurkeys = turkeyGrid.queryRadius(turret.mesh.position, turretRange);
+        
+        let target = null;
+        let minDist = turretRange;
+
+        for (const tk of nearbyTurkeys) {
           if (tk.dead) continue;
           const dist = tk.pos.distanceTo(turret.mesh.position);
           if (dist < minDist) {
@@ -1482,9 +1737,9 @@ export default function TurkeyTrotDefensePhase5() {
         p.mesh.position.addScaledVector(p.vel, dt);
         p.life += dt;
 
-        // Collision
-        for (let j = state.turkeys.length - 1; j >= 0; j--) {
-          const tk = state.turkeys[j];
+        // Collision using spatial hash grid (O(1) query instead of O(N))
+        const nearbyCandidates = turkeyGrid.queryRadius(p.mesh.position, 2.0);
+        for (const tk of nearbyCandidates) {
           if (p.hits.has(tk) || tk.dead) continue;
           const dx = p.mesh.position.x - tk.pos.x, dz = p.mesh.position.z - tk.pos.z;
           if (Math.sqrt(dx * dx + dz * dz) < 0.7 * tk.scale) {
@@ -1497,17 +1752,34 @@ export default function TurkeyTrotDefensePhase5() {
             emitParticles(p.mesh.position.clone(), 8, 0xffff00, { x: 3, y: 4, z: 3 }, 0.3);
             setHitMarker(tk.hp <= 0 ? 'kill' : 'hit');
             setTimeout(() => setHitMarker(null), 150);
-            if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; removeTurkey(j); }
+            if (tk.hp <= 0 && !tk.dead) { 
+              tk.dead = true; 
+              state.currency += tk.val; 
+              state.score += tk.val * 10; 
+              const idx = state.turkeys.indexOf(tk);
+              if (idx !== -1) removeTurkey(idx); 
+            }
             if (p.splash > 0) {
               createExplosion(p.mesh.position.clone(), p.splash);
+              // Use spatial query for splash damage too
+              const splashTargets = turkeyGrid.queryRadius(p.mesh.position, p.splash);
               const splashKills = [];
-              state.turkeys.forEach((otk, oidx) => {
+              for (const otk of splashTargets) {
                 if (otk !== tk && !otk.dead) {
                   const sdx = otk.pos.x - p.mesh.position.x, sdz = otk.pos.z - p.mesh.position.z;
                   const d = Math.sqrt(sdx * sdx + sdz * sdz);
-                  if (d < p.splash) { otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); if (otk.hp <= 0 && !otk.dead) { otk.dead = true; state.currency += otk.val; state.score += otk.val * 10; splashKills.push(oidx); } }
+                  if (d < p.splash) { 
+                    otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); 
+                    if (otk.hp <= 0 && !otk.dead) { 
+                      otk.dead = true; 
+                      state.currency += otk.val; 
+                      state.score += otk.val * 10; 
+                      const oidx = state.turkeys.indexOf(otk);
+                      if (oidx !== -1) splashKills.push(oidx); 
+                    } 
+                  }
                 }
-              });
+              }
               for (let k = splashKills.length - 1; k >= 0; k--) removeTurkey(splashKills[k]);
             }
             if (p.pierce <= 0) { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); state.projectiles.splice(i, 1); break; }
@@ -1523,8 +1795,9 @@ export default function TurkeyTrotDefensePhase5() {
         p.mesh.position.addScaledVector(p.vel, dt);
         p.life += dt;
 
-        for (let j = state.turkeys.length - 1; j >= 0; j--) {
-          const tk = state.turkeys[j];
+        // Use spatial hash grid for turret projectile collisions too
+        const turretNearbyCandidates = turkeyGrid.queryRadius(p.mesh.position, 2.0);
+        for (const tk of turretNearbyCandidates) {
           if (p.hits.has(tk) || tk.dead) continue;
           const dx = p.mesh.position.x - tk.pos.x, dz = p.mesh.position.z - tk.pos.z;
           if (Math.sqrt(dx * dx + dz * dz) < 0.7 * tk.scale) {
@@ -1534,16 +1807,31 @@ export default function TurkeyTrotDefensePhase5() {
             tk.body.material.color.set(0xff0000);
             setTimeout(() => { if (tk.body) tk.body.material.color.set(TurkeyTypes[tk.type].body); }, 80);
             emitParticles(p.mesh.position.clone(), 5, 0xffff00, { x: 2, y: 3, z: 2 }, 0.2);
-            if (tk.hp <= 0 && !tk.dead) { tk.dead = true; state.currency += tk.val; state.score += tk.val * 10; removeTurkey(j); }
+            if (tk.hp <= 0 && !tk.dead) { 
+              tk.dead = true; 
+              state.currency += tk.val; 
+              state.score += tk.val * 10; 
+              const idx = state.turkeys.indexOf(tk);
+              if (idx !== -1) removeTurkey(idx); 
+            }
             if (p.splash > 0) {
               createExplosion(p.mesh.position.clone(), p.splash);
-              state.turkeys.forEach((otk) => {
+              // Use spatial query for splash damage
+              const turretSplashTargets = turkeyGrid.queryRadius(p.mesh.position, p.splash);
+              for (const otk of turretSplashTargets) {
                 if (otk !== tk && !otk.dead) {
                   const sdx = otk.pos.x - p.mesh.position.x, sdz = otk.pos.z - p.mesh.position.z;
                   const d = Math.sqrt(sdx * sdx + sdz * sdz);
-                  if (d < p.splash) { otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); if (otk.hp <= 0 && !otk.dead) { otk.dead = true; state.currency += otk.val; state.score += otk.val * 10; } }
+                  if (d < p.splash) { 
+                    otk.hp -= p.dmg * 0.5 * (1 - d / p.splash); 
+                    if (otk.hp <= 0 && !otk.dead) { 
+                      otk.dead = true; 
+                      state.currency += otk.val; 
+                      state.score += otk.val * 10; 
+                    } 
+                  }
                 }
-              });
+              }
             }
             scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose();
             state.turretProjectiles.splice(i, 1);
@@ -1557,6 +1845,12 @@ export default function TurkeyTrotDefensePhase5() {
       for (let i = state.turkeys.length - 1; i >= 0; i--) {
         if (state.turkeys[i].dead || state.turkeys[i].hp <= 0) removeTurkey(i);
       }
+
+      // Update damage manager - handles collapse animations and pending destructions
+      damageManager.update(dt);
+
+      // Update stability optimizer - processes batched stability calculations
+      stabilityOptimizer.processUpdates(2); // 2ms budget per frame
 
       // Wave completion
       if (state.toSpawn === 0 && state.turkeys.length === 0 && state.wave > 0 && !state.waveComplete) {
@@ -1632,6 +1926,15 @@ export default function TurkeyTrotDefensePhase5() {
         state.globalFreeze = 0; state.rageActive = 0;
         state.upgrades = { barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 };
 
+        // Clear spatial indices and building validator
+        turkeyGrid.clear();
+        buildingValidator.clear();
+        damageManager.clear();
+        stabilityOptimizer.clear();
+        
+        // Clear any saved session
+        clearSessionData();
+
         Object.keys(spawnedCounts).forEach(k => spawnedCounts[k] = 0);
         setUpgrades({ barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 });
         setTurrets([]);
@@ -1643,6 +1946,138 @@ export default function TurkeyTrotDefensePhase5() {
         audioManager.startMusic();
         updatePlayerStats({ gamesPlayed: playerStats.gamesPlayed + 1 });
         setTimeout(() => startWave(), 1000);
+      },
+      
+      // Save current game session for later resume
+      saveSession: () => {
+        // Collect damage states from damageManager
+        const damageStates = {};
+        for (const turret of state.turrets) {
+          const damageable = damageManager.getDamageable(turret);
+          if (damageable) {
+            damageStates[turret.id] = {
+              health: damageable.health,
+              maxHealth: damageable.maxHealth,
+              damageState: damageable.damageState
+            };
+          }
+        }
+        
+        return saveSessionData({
+          wave: state.wave,
+          currency: state.currency,
+          score: state.score,
+          barnHealth: state.barn.health,
+          barnMaxHealth: state.barn.maxHealth,
+          upgrades: state.upgrades,
+          endlessMode: state.endlessMode,
+          turrets: state.turrets,
+          buildingGraph: buildingValidator.serializeGraph(),
+          damageStates
+        });
+      },
+      
+      // Load a saved game session
+      loadSession: async () => {
+        const session = loadSessionData();
+        if (!session) return false;
+        
+        // Initialize audio if needed
+        if (!state.started) {
+          await audioManager.init();
+        }
+        
+        // Clear current state
+        state.turkeys.forEach(t => { scene.remove(t.mesh); t.mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); }); });
+        state.turrets.forEach(t => { scene.remove(t.mesh); t.mesh.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); }); });
+        state.projectiles.forEach(p => { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); });
+        state.turretProjectiles.forEach(p => { scene.remove(p.mesh); p.mesh.geometry.dispose(); p.mesh.material.dispose(); });
+        
+        state.turkeys = []; state.projectiles = []; state.turretProjectiles = []; state.turrets = [];
+        turkeyGrid.clear();
+        buildingValidator.clear();
+        damageManager.clear();
+        stabilityOptimizer.clear();
+        
+        // Restore game state
+        state.wave = session.wave;
+        state.currency = session.currency;
+        state.score = session.score;
+        state.barn.health = session.barnHealth;
+        state.barn.maxHealth = session.barnMaxHealth;
+        state.upgrades = session.upgrades || { barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0 };
+        state.endlessMode = session.endlessMode || false;
+        state.started = true;
+        state.gameOver = false;
+        state.waveComplete = true; // Start in wave complete state so player can prepare
+        
+        // Restore building graph
+        if (session.buildingGraph) {
+          buildingValidator.deserializeGraph(session.buildingGraph);
+        }
+        
+        // Restore turrets
+        for (const turretData of session.turrets || []) {
+          const pos = new THREE.Vector3(turretData.position.x, turretData.position.y, turretData.position.z);
+          const turret = createTurretMesh(pos, turretData.type);
+          turret.id = turretData.id;
+          turret.health = turretData.health;
+          turret.maxHealth = turretData.maxHealth;
+          state.turrets.push(turret);
+          
+          // Register with damage manager
+          damageManager.registerPiece(turret, { maxHealth: turretData.maxHealth });
+          
+          // Restore damage state if available
+          const savedDamage = session.damageStates?.[turretData.id];
+          if (savedDamage) {
+            const damageable = damageManager.getDamageable(turret);
+            if (damageable) {
+              damageable.health = savedDamage.health;
+              damageable.damageState = savedDamage.damageState;
+              // Update visuals
+              damageVisualizer.updateVisuals(turret, damageable);
+              
+              // Update health bar
+              if (turret.healthBar && turret.healthBarFill) {
+                const healthPercent = savedDamage.health / turretData.maxHealth;
+                turret.healthBar.visible = healthPercent < 1;
+                turret.healthBarFill.scale.x = Math.max(0.01, healthPercent);
+                turret.healthBarFill.position.x = (healthPercent - 1) * 0.48;
+                if (healthPercent <= 0.25) {
+                  turret.healthBarFill.material.color.setHex(0xff4444);
+                } else if (healthPercent <= 0.6) {
+                  turret.healthBarFill.material.color.setHex(0xffaa44);
+                } else {
+                  turret.healthBarFill.material.color.setHex(0x44ff44);
+                }
+              }
+            }
+          }
+          
+          // Queue for stability optimizer
+          stabilityOptimizer.onPiecePlaced({ id: turret.id, position: pos });
+        }
+        
+        // Update React state
+        setStarted(true);
+        setEndlessMode(session.endlessMode || false);
+        setUpgrades(state.upgrades);
+        setTurrets([...state.turrets]);
+        setWaitingForNextWave(true);
+        setBanner(`Session Restored! Wave ${state.wave} - Click to continue`);
+        
+        audioManager.startMusic();
+        
+        // Clear the saved session after loading
+        clearSessionData();
+        
+        return true;
+      },
+      
+      // Check if a saved session exists
+      hasSession: () => {
+        return loadSessionData() !== null;
       }
     };
 
@@ -1918,6 +2353,18 @@ export default function TurkeyTrotDefensePhase5() {
               ♾️ Endless Mode
             </button>
           </div>
+          
+          {/* Continue saved session button */}
+          {gameRef.current?.hasSession?.() && (
+            <button onClick={async () => { 
+              const loaded = await gameRef.current?.loadSession(); 
+              if (loaded) setGameMode(stateRef.current?.endlessMode ? 'endless' : 'normal');
+            }}
+              className="bg-gradient-to-r from-green-500 to-teal-500 text-white text-lg font-bold px-8 py-3 rounded-xl hover:scale-105 transition shadow-lg mb-6">
+              ▶️ Continue Saved Game
+            </button>
+          )}
+          
           <div className="text-gray-500 text-sm mb-4">
             WASD: Move • Mouse: Aim/Shoot • 1-4: Weapons • Q/E/R/F: Abilities
           </div>
@@ -1982,7 +2429,7 @@ export default function TurkeyTrotDefensePhase5() {
                     <div className="flex-1 text-left">
                       <div className="text-white font-bold">{turret.name}</div>
                       <div className="text-gray-400 text-sm">{turret.description}</div>
-                      <div className="text-gray-500 text-xs">DMG: {turret.damage} • Range: {turret.range} • Rate: {turret.fireRate}/s</div>
+                      <div className="text-gray-500 text-xs">DMG: {turret.damage} • Range: {turret.range} • Rate: {turret.fireRate}/s • HP: {turret.health}</div>
                     </div>
                     <div className={`font-bold ${canAfford ? 'text-yellow-400' : 'text-red-400'}`}>🌽 {turret.cost}</div>
                   </button>
@@ -2135,6 +2582,7 @@ export default function TurkeyTrotDefensePhase5() {
       {paused && !settingsOpen && !shopOpen && !turretMenuOpen && !helpOpen && !achievementsOpen && (
         <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20">
           <div className="text-5xl font-black text-white mb-8">⏸️ PAUSED</div>
+          <div className="text-sm text-gray-400 mb-4">Game auto-saved</div>
           <div className="space-y-3">
             <button onClick={() => { setPaused(false); if (stateRef.current) stateRef.current.paused = false; audioManager.playSound('click'); }}
               className="block w-48 bg-green-600 text-white py-3 rounded-lg hover:bg-green-500 transition text-lg font-bold">Resume</button>
@@ -2142,6 +2590,15 @@ export default function TurkeyTrotDefensePhase5() {
               className="block w-48 bg-gray-600 text-white py-3 rounded-lg hover:bg-gray-500 transition text-lg">Settings</button>
             <button onClick={() => { setHelpOpen(true); audioManager.playSound('click'); }}
               className="block w-48 bg-gray-600 text-white py-3 rounded-lg hover:bg-gray-500 transition text-lg">Help</button>
+            <button onClick={() => { 
+              gameRef.current?.saveSession();
+              setPaused(false);
+              setStarted(false);
+              if (stateRef.current) { stateRef.current.paused = false; stateRef.current.started = false; }
+              audioManager.stopMusic();
+              audioManager.playSound('click'); 
+            }}
+              className="block w-48 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-500 transition text-lg">Save & Quit</button>
           </div>
         </div>
       )}
