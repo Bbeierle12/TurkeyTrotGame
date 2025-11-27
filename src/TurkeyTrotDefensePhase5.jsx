@@ -230,6 +230,60 @@ class AudioManager {
 const audioManager = new AudioManager();
 
 // =========================
+// SAVE/LOAD SYSTEM
+// =========================
+const SAVE_KEY = 'turkeyTrotDefense_saveData';
+
+const getDefaultSaveData = () => ({
+  playerStats: {
+    totalKills: 0, bossKills: 0, highestWave: 0, maxCurrency: 0,
+    turretsPlaced: 0, abilitiesUsed: 0, clutchWins: 0, fastWave10: false,
+    endlessHighWave: 0, perfectWaves: 0, gamesPlayed: 0, highScore: 0
+  },
+  unlockedAchievements: [],
+  settings: {
+    masterVolume: 0.7, sfxVolume: 0.8, musicVolume: 0.5,
+    muted: false, showFps: false, showMinimap: true
+  },
+  version: 1
+});
+
+const loadSaveData = () => {
+  try {
+    const saved = localStorage.getItem(SAVE_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      // Merge with defaults to handle new fields in updates
+      const defaults = getDefaultSaveData();
+      return {
+        playerStats: { ...defaults.playerStats, ...data.playerStats },
+        unlockedAchievements: data.unlockedAchievements || [],
+        settings: { ...defaults.settings, ...data.settings },
+        version: data.version || 1
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to load save data:', e);
+  }
+  return getDefaultSaveData();
+};
+
+const saveGameData = (playerStats, unlockedAchievements, settings) => {
+  try {
+    const data = {
+      playerStats,
+      unlockedAchievements,
+      settings,
+      version: 1,
+      lastSaved: new Date().toISOString()
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn('Failed to save game data:', e);
+  }
+};
+
+// =========================
 // MAIN GAME COMPONENT
 // =========================
 export default function TurkeyTrotDefensePhase5() {
@@ -239,6 +293,9 @@ export default function TurkeyTrotDefensePhase5() {
   const unlockedAchievementsRef = useRef(new Set());
   const achievementQueueRef = useRef([]);
   const isShowingAchievementRef = useRef(false);
+  
+  // Load saved data on initial render
+  const savedData = useRef(loadSaveData());
 
   // Core game state
   const [stats, setStats] = useState({ health: 100, currency: 100, wave: 0, enemies: 0, score: 0 });
@@ -266,24 +323,20 @@ export default function TurkeyTrotDefensePhase5() {
     REPAIR: { cooldown: 0, active: false }
   });
   const [achievementsOpen, setAchievementsOpen] = useState(false);
-  const [unlockedAchievements, setUnlockedAchievements] = useState([]);
+  const [unlockedAchievements, setUnlockedAchievements] = useState(() => savedData.current.unlockedAchievements);
   const [newAchievement, setNewAchievement] = useState(null);
   const [gameMode, setGameMode] = useState('normal'); // 'normal' or 'endless'
   const [endlessMode, setEndlessMode] = useState(false);
   const [turretMenuOpen, setTurretMenuOpen] = useState(false);
 
-  // Persistent stats for achievements
-  const [playerStats, setPlayerStats] = useState({
-    totalKills: 0, bossKills: 0, highestWave: 0, maxCurrency: 0,
-    turretsPlaced: 0, abilitiesUsed: 0, clutchWins: 0, fastWave10: false,
-    endlessHighWave: 0, perfectWaves: 0, gamesPlayed: 0
-  });
+  // Persistent stats for achievements - loaded from save
+  const [playerStats, setPlayerStats] = useState(() => savedData.current.playerStats);
 
-  // Settings
-  const [settings, setSettings] = useState({
-    masterVolume: 0.7, sfxVolume: 0.8, musicVolume: 0.5,
-    muted: false, showFps: false, showMinimap: true
-  });
+  // Settings - loaded from save
+  const [settings, setSettings] = useState(() => savedData.current.settings);
+
+  // High score tracking
+  const [highScore, setHighScore] = useState(() => savedData.current.playerStats.highScore || 0);
 
   const [cameraMode, setCameraMode] = useState('ISOMETRIC'); // ISOMETRIC, TOPDOWN, FIRST_PERSON
   const [pointerLocked, setPointerLocked] = useState(false);
@@ -300,6 +353,19 @@ export default function TurkeyTrotDefensePhase5() {
   const [upgrades, setUpgrades] = useState({
     barnArmor: 0, weaponDamage: 0, fireRate: 0, maxHealth: 0
   });
+
+  // Initialize unlocked achievements ref from saved data
+  useEffect(() => {
+    savedData.current.unlockedAchievements.forEach(key => {
+      unlockedAchievementsRef.current.add(key);
+    });
+  }, []);
+
+  // Auto-save when important data changes
+  useEffect(() => {
+    const statsWithHighScore = { ...playerStats, highScore };
+    saveGameData(statsWithHighScore, unlockedAchievements, settings);
+  }, [playerStats, unlockedAchievements, settings, highScore]);
 
   // Show next achievement from queue
   const showNextAchievement = useCallback(() => {
@@ -1229,6 +1295,10 @@ export default function TurkeyTrotDefensePhase5() {
             state.barn.health = 0;
             setGameOver(true);
             state.gameOver = true;
+            // Update high score if current score is higher
+            if (state.score > (savedData.current.playerStats.highScore || 0)) {
+              setHighScore(state.score);
+            }
             audioManager.playSound('gameover');
           }
         }
@@ -1814,7 +1884,28 @@ export default function TurkeyTrotDefensePhase5() {
         <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center">
           <div className="text-6xl mb-4">🦃🏠🔱</div>
           <h1 className="text-5xl font-black text-white mb-2" style={{ textShadow: '0 0 20px rgba(255,100,0,0.8)' }}>Turkey Trot Defense</h1>
-          <p className="text-gray-400 mb-8 text-lg">Defend your barn from the turkey invasion!</p>
+          <p className="text-gray-400 mb-4 text-lg">Defend your barn from the turkey invasion!</p>
+          
+          {/* Stats display */}
+          <div className="bg-black/50 rounded-xl px-6 py-3 mb-6 flex gap-6 text-sm">
+            <div className="text-center">
+              <div className="text-yellow-400 font-bold text-xl">{highScore}</div>
+              <div className="text-gray-500">High Score</div>
+            </div>
+            <div className="text-center">
+              <div className="text-orange-400 font-bold text-xl">{playerStats.highestWave}</div>
+              <div className="text-gray-500">Best Wave</div>
+            </div>
+            <div className="text-center">
+              <div className="text-red-400 font-bold text-xl">{playerStats.totalKills}</div>
+              <div className="text-gray-500">Total Kills</div>
+            </div>
+            <div className="text-center">
+              <div className="text-purple-400 font-bold text-xl">{playerStats.gamesPlayed}</div>
+              <div className="text-gray-500">Games</div>
+            </div>
+          </div>
+
           <div className="flex gap-4 mb-8">
             <button onClick={() => { setGameMode('normal'); gameRef.current?.start(false); }}
               className="bg-gradient-to-r from-orange-500 to-red-500 text-white text-xl font-bold px-10 py-4 rounded-xl hover:scale-105 transition shadow-lg">
@@ -1826,7 +1917,7 @@ export default function TurkeyTrotDefensePhase5() {
             </button>
           </div>
           <div className="text-gray-500 text-sm mb-4">
-            WASD: Move • Arrows: Pan • &lt; &gt;: Rotate • Mouse: Aim/Shoot • 1-4: Weapons • Q/E/R/F: Abilities
+            WASD: Move • Mouse: Aim/Shoot • 1-4: Weapons • Q/E/R/F: Abilities
           </div>
           <div className="flex gap-4">
             <button onClick={() => { setAchievementsOpen(true); audioManager.playSound('click'); }}
@@ -1941,6 +2032,22 @@ export default function TurkeyTrotDefensePhase5() {
                   {settings.showMinimap ? 'On' : 'Off'}
                 </button>
               </div>
+              <div className="border-t border-gray-700 pt-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-white">Reset All Progress</span>
+                    <p className="text-gray-500 text-xs">Clears high scores, achievements, and stats</p>
+                  </div>
+                  <button onClick={() => {
+                    if (confirm('Are you sure? This will delete all your progress!')) {
+                      localStorage.removeItem(SAVE_KEY);
+                      window.location.reload();
+                    }
+                  }} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 transition text-white text-sm">
+                    Reset
+                  </button>
+                </div>
+              </div>
             </div>
             <button onClick={() => { setSettingsOpen(false); audioManager.playSound('click'); }}
               className="w-full mt-6 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition">Close (ESC)</button>
@@ -2042,9 +2149,15 @@ export default function TurkeyTrotDefensePhase5() {
         <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40">
           <div className="text-6xl mb-4">💀🦃</div>
           <h1 className="text-5xl font-black text-red-500 mb-2">GAME OVER</h1>
+          {stats.score >= highScore && stats.score > 0 && (
+            <div className="text-2xl text-yellow-400 font-bold mb-2 animate-pulse">🏆 NEW HIGH SCORE! 🏆</div>
+          )}
           <div className="text-3xl text-white mb-2">Score: {stats.score}</div>
+          {highScore > 0 && stats.score < highScore && (
+            <div className="text-lg text-gray-500 mb-2">High Score: {highScore}</div>
+          )}
           <div className="text-xl text-gray-400 mb-2">Wave {stats.wave} {endlessMode && '(Endless)'}</div>
-          <div className="text-gray-500 mb-8">Turrets placed: {turrets.length}</div>
+          <div className="text-gray-500 mb-8">Turkeys defeated: {playerStats.totalKills} total</div>
           <div className="space-y-3">
             <button onClick={() => gameRef.current?.restart()}
               className="block w-48 bg-gradient-to-r from-orange-500 to-red-500 text-white py-3 rounded-lg hover:scale-105 transition text-lg font-bold">Play Again</button>
