@@ -286,6 +286,7 @@ export default function TurkeyTrotDefensePhase5() {
   });
 
   const [cameraMode, setCameraMode] = useState('ISOMETRIC'); // ISOMETRIC, TOPDOWN, FIRST_PERSON
+  const [pointerLocked, setPointerLocked] = useState(false);
   const cameraModeRef = useRef('ISOMETRIC');
   const [zoom, setZoom] = useState(1.0);
   const zoomRef = useRef(1.0);
@@ -562,13 +563,14 @@ export default function TurkeyTrotDefensePhase5() {
     // Game state
     const state = {
       started: false, gameOver: false, paused: false, endlessMode: false,
-      player: { pos: new THREE.Vector3(0, 0, 10), rot: 0 },
-      barn: { health: 175, maxHealth: 175 },
+      player: { pos: new THREE.Vector3(0, 0, 10), rot: 0, pitch: 0 },
+      barn: { health: 175, maxHealth: 175, pos: new THREE.Vector3(0, 0, 0) },
       turkeys: [], projectiles: [], turrets: [], turretProjectiles: [],
       wave: 0, toSpawn: 0, spawnTimer: 0, currency: 100, score: 0,
-      currentWeapon: 'PITCHFORK', lastFire: 0,
-      input: { w: false, a: false, s: false, d: false, firing: false },
+      currentWeapon: 'PITCHFORK', lastFire: 0, shootTimer: 0,
+      input: { w: false, a: false, s: false, d: false, firing: false, panUp: false, panDown: false, panLeft: false, panRight: false },
       aim: new THREE.Vector3(), shakeIntensity: 0, shakeDuration: 0,
+      pointerLocked: false,
       waveComplete: false, waveComp: {}, waveStartHealth: 175,
       waveTransitionTimer: 0, waveTransitionDelay: 0,
       globalFreeze: 0, rageActive: 0, pendingAirstrike: null,
@@ -903,6 +905,10 @@ export default function TurkeyTrotDefensePhase5() {
           const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
           const nextMode = modes[(modes.indexOf(cameraModeRef.current) + 1) % modes.length];
           setCameraMode(nextMode);
+          // Exit pointer lock when switching away from FPS
+          if (nextMode !== 'FIRST_PERSON' && document.pointerLockElement) {
+            document.exitPointerLock();
+          }
           audioManager.playSound('click');
         }
 
@@ -965,10 +971,28 @@ export default function TurkeyTrotDefensePhase5() {
     }, { passive: false });
 
     renderer.domElement.addEventListener('mousemove', e => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-      raycaster.setFromCamera(mouse, camera);
-      raycaster.ray.intersectPlane(plane, state.aim);
+      // FPS mode: use mouse movement for camera look
+      if (cameraModeRef.current === 'FIRST_PERSON' && state.pointerLocked) {
+        const sensitivity = 0.002;
+        state.player.rot -= e.movementX * sensitivity;
+        state.player.pitch -= e.movementY * sensitivity;
+        // Clamp pitch to prevent flipping
+        state.player.pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, state.player.pitch));
+        
+        // Update aim based on look direction for shooting
+        const lookDir = new THREE.Vector3(
+          Math.sin(state.player.rot) * Math.cos(state.player.pitch),
+          Math.sin(state.player.pitch),
+          Math.cos(state.player.rot) * Math.cos(state.player.pitch)
+        );
+        state.aim.copy(state.player.pos).add(lookDir.multiplyScalar(50));
+      } else {
+        // Normal mode: raycast to ground
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+        raycaster.setFromCamera(mouse, camera);
+        raycaster.ray.intersectPlane(plane, state.aim);
+      }
 
       // Update turret preview
       const currentPlacingTurret = placingTurretRef.current;
@@ -986,6 +1010,18 @@ export default function TurkeyTrotDefensePhase5() {
       }
     });
     renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+    // Pointer lock for FPS mode
+    renderer.domElement.addEventListener('click', () => {
+      if (cameraModeRef.current === 'FIRST_PERSON' && !state.pointerLocked) {
+        renderer.domElement.requestPointerLock();
+      }
+    });
+    const onPointerLockChange = () => {
+      state.pointerLocked = document.pointerLockElement === renderer.domElement;
+      setPointerLocked(state.pointerLocked);
+    };
+    document.addEventListener('pointerlockchange', onPointerLockChange);
 
     // Wave management
     const startWave = () => {
@@ -1050,34 +1086,49 @@ export default function TurkeyTrotDefensePhase5() {
       const dt = Math.min(clock.getDelta(), 0.1);
       const t = clock.getElapsedTime();
 
-      // Player Movement
+      // Player Movement - relative to character facing direction
+      // W = forward (where character faces), S = backward, A = strafe left, D = strafe right
       const mv = new THREE.Vector3();
-      if (state.input.w) mv.z -= 1;
-      if (state.input.s) mv.z += 1;
-      if (state.input.a) mv.x -= 1;
-      if (state.input.d) mv.x += 1;
+      
+      // Get forward vector based on player rotation (where mouse is pointing)
+      const forward = new THREE.Vector3(
+        Math.sin(state.player.rot),
+        0,
+        Math.cos(state.player.rot)
+      );
+      // Right vector is perpendicular to forward (rotate 90 degrees)
+      const right = new THREE.Vector3(
+        Math.sin(state.player.rot + Math.PI / 2),
+        0,
+        Math.cos(state.player.rot + Math.PI / 2)
+      );
+      
+      if (state.input.w) mv.add(forward);   // Move forward (direction character faces)
+      if (state.input.s) mv.sub(forward);   // Move backward
+      if (state.input.a) mv.sub(right);     // Strafe left
+      if (state.input.d) mv.add(right);     // Strafe right
 
       if (mv.lengthSq() > 0) {
         mv.normalize().multiplyScalar(6.5 * dt);
-
-        if (cameraModeRef.current === 'FIRST_PERSON') {
-          // Move relative to player rotation
-          mv.applyAxisAngle(new THREE.Vector3(0, 1, 0), state.player.rot);
-        }
 
         state.player.pos.add(mv);
         state.player.pos.x = Math.max(-45, Math.min(45, state.player.pos.x));
         state.player.pos.z = Math.max(-45, Math.min(45, state.player.pos.z));
         playerGroup.position.copy(state.player.pos);
 
-        // Bobbing
+        // Bobbing animation
         playerGroup.position.y = Math.abs(Math.sin(t * 12)) * 0.05;
       }
 
-      // Player Rotation (Aiming)
-      const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).setY(0);
-      if (dir.lengthSq() > 0.01) {
-        state.player.rot = Math.atan2(dir.x, dir.z);
+      // Player Rotation (Aiming) - only in non-FPS modes
+      if (cameraModeRef.current !== 'FIRST_PERSON') {
+        const dir = new THREE.Vector3().subVectors(state.aim, state.player.pos).setY(0);
+        if (dir.lengthSq() > 0.01) {
+          state.player.rot = Math.atan2(dir.x, dir.z);
+          playerGroup.rotation.y = state.player.rot;
+        }
+      } else {
+        // In FPS mode, rotation is controlled by mouse look
         playerGroup.rotation.y = state.player.rot;
       }
 
@@ -1147,7 +1198,7 @@ export default function TurkeyTrotDefensePhase5() {
 
         // Move towards barn
         const dir = new THREE.Vector3().subVectors(state.barn.pos, tk.pos).normalize();
-        let speed = tk.speed * (tk.slowMult || 1);
+        let speed = tk.spd * (tk.slowMult || 1);
         if (tk.slowTimer > 0) {
           tk.slowTimer -= dt;
           if (tk.slowTimer <= 0) tk.slowMult = 1;
@@ -1187,7 +1238,7 @@ export default function TurkeyTrotDefensePhase5() {
       if (state.shootTimer > 0) state.shootTimer -= dt;
       if (state.input.firing && state.shootTimer <= 0 && !state.gameOver && !state.paused) {
         const weapon = WeaponTypes[state.currentWeapon];
-        const rate = weapon.rate * (1 - (state.upgrades?.fireRate || 0) * 0.1);
+        const rate = 1 / (weapon.fireRate * (1 + (state.upgrades?.fireRate || 0) * 0.1));
         state.shootTimer = rate;
 
         // Calculate spread/direction
@@ -1251,17 +1302,32 @@ export default function TurkeyTrotDefensePhase5() {
       if (state.input.panRight) panOffsetRef.current.x += 20 * dt;
 
       if (mode === 'FIRST_PERSON') {
-        // First Person: Attach to player head, look forward
+        // First Person: Attach to player head, look based on mouse
         const headPos = state.player.pos.clone().add(new THREE.Vector3(0, 1.6, 0));
         camera.position.copy(headPos);
 
-        // Look direction based on player rotation
-        // We look slightly down to see the ground/enemies
-        const lookDir = new THREE.Vector3(Math.sin(state.player.rot), -0.2, Math.cos(state.player.rot));
+        // Look direction based on player rotation and pitch
+        const lookDir = new THREE.Vector3(
+          Math.sin(state.player.rot) * Math.cos(state.player.pitch),
+          Math.sin(state.player.pitch),
+          Math.cos(state.player.rot) * Math.cos(state.player.pitch)
+        );
         const target = headPos.clone().add(lookDir);
         camera.lookAt(target);
+        camera.up.set(0, 1, 0);
 
+        // Hide player model in FPS mode
+        playerGroup.visible = false;
+
+        // Screen shake for FPS
+        if (state.shakeDuration > 0) {
+          const shake = state.shakeIntensity * 0.02;
+          camera.rotation.x += (Math.random() - 0.5) * shake;
+          camera.rotation.y += (Math.random() - 0.5) * shake;
+        }
       } else if (mode === 'TOPDOWN') {
+        // Show player in other modes
+        playerGroup.visible = true;
         // Top Down: High above, looking straight down
         // Apply Pan
         const targetPos = state.player.pos.clone().add(pan).add(new THREE.Vector3(0, 50 * z, 0));
@@ -1277,6 +1343,8 @@ export default function TurkeyTrotDefensePhase5() {
         camera.lookAt(state.player.pos.clone().add(pan));
 
       } else {
+        // Show player in isometric mode
+        playerGroup.visible = true;
         // Isometric (Default): Follow player with offset + Rotation + Pan
         const dist = 40 * z;
         const height = 32 * z;
@@ -1518,6 +1586,8 @@ export default function TurkeyTrotDefensePhase5() {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      document.removeEventListener('pointerlockchange', onPointerLockChange);
+      if (document.pointerLockElement) document.exitPointerLock();
       audioManager.dispose();
     };
   }, []);
@@ -1552,6 +1622,28 @@ export default function TurkeyTrotDefensePhase5() {
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
           <div className={`text-4xl ${hitMarker === 'kill' ? 'text-yellow-400 scale-125' : 'text-white'} transition-transform`}>
             {hitMarker === 'kill' ? '✕' : '+'}
+          </div>
+        </div>
+      )}
+
+      {/* FPS Crosshair */}
+      {cameraMode === 'FIRST_PERSON' && started && !gameOver && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20">
+          <div className="relative">
+            {/* Crosshair */}
+            <div className="w-6 h-0.5 bg-white/80 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 shadow-lg" />
+            <div className="w-0.5 h-6 bg-white/80 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 shadow-lg" />
+            <div className="w-1.5 h-1.5 bg-red-500 rounded-full absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+      )}
+
+      {/* FPS Mode Click to Lock */}
+      {cameraMode === 'FIRST_PERSON' && !pointerLocked && started && !gameOver && !paused && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 mt-16 pointer-events-none z-10">
+          <div className="bg-black/70 text-white px-4 py-2 rounded-lg text-center animate-pulse">
+            Click to enable mouse look<br/>
+            <span className="text-gray-400 text-sm">Press ESC to release</span>
           </div>
         </div>
       )}
