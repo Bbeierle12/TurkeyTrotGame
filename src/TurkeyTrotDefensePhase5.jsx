@@ -506,8 +506,10 @@ export default function TurkeyTrotDefensePhase5() {
     sun.position.set(25, 45, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = sun.shadow.camera.bottom = -50;
-    sun.shadow.camera.right = sun.shadow.camera.top = 50;
+    sun.shadow.camera.left = sun.shadow.camera.bottom = -80;
+    sun.shadow.camera.right = sun.shadow.camera.top = 80;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 150;
     sun.shadow.bias = -0.0001;
     scene.add(sun);
     scene.add(new THREE.DirectionalLight(0xff9966, 0.25).translateX(-25).translateY(15));
@@ -1171,8 +1173,8 @@ export default function TurkeyTrotDefensePhase5() {
       
       if (state.input.w) mv.add(forward);   // Move forward (direction character faces)
       if (state.input.s) mv.sub(forward);   // Move backward
-      if (state.input.a) mv.sub(right);     // Strafe left
-      if (state.input.d) mv.add(right);     // Strafe right
+      if (state.input.a) mv.add(right);     // Strafe left
+      if (state.input.d) mv.sub(right);     // Strafe right
 
       if (mv.lengthSq() > 0) {
         mv.normalize().multiplyScalar(6.5 * dt);
