@@ -128,6 +128,8 @@ export class GameEngine {
 
       wave: 0,
       toSpawn: 0,
+      totalSpawnedThisWave: 0,
+      expectedThisWave: 0,
       spawnTimer: 0,
       currency: 100,
       score: 0,
@@ -1063,8 +1065,17 @@ export class GameEngine {
     this._updateAbilities(dt);
     this._updateDamageSystem(dt);
 
-    // Check wave completion - only if wave > 0 and all enemies spawned and killed
-    if (this.state.wave > 0 && this.state.toSpawn === 0 && this.state.turkeys.filter(tk => !tk.dead).length === 0 && !this.state.waveComplete) {
+    // Check wave completion - requires:
+    // 1. Wave has started (wave > 0)
+    // 2. All enemies spawned (toSpawn === 0)
+    // 3. All spawned enemies are dead
+    // 4. At least one enemy was spawned this wave (prevents instant completion)
+    // 5. Not already marked complete
+    const allSpawned = this.state.toSpawn === 0;
+    const allDead = this.state.turkeys.filter(tk => !tk.dead).length === 0;
+    const enemiesWereSpawned = this.state.totalSpawnedThisWave > 0 && this.state.totalSpawnedThisWave >= this.state.expectedThisWave;
+
+    if (this.state.wave > 0 && allSpawned && allDead && enemiesWereSpawned && !this.state.waveComplete) {
       this._onWaveComplete();
     }
 
@@ -1595,6 +1606,7 @@ export class GameEngine {
         this.state.turkeys.push(turkey);
         this.turkeyGrid.insert(turkey, turkey.pos);
         this.state.toSpawn--;
+        this.state.totalSpawnedThisWave++;
 
         const baseDelay = Math.max(0.5, 2.5 - this.state.wave * 0.15);
         this.state.spawnTimer = baseDelay * (0.8 + Math.random() * 0.4);
@@ -2004,7 +2016,11 @@ export class GameEngine {
 
     // Calculate total enemies
     this.state.toSpawn = Object.values(this.state.waveComp).reduce((a, b) => a + b, 0);
+    this.state.expectedThisWave = this.state.toSpawn;
+    this.state.totalSpawnedThisWave = 0;
     this.state.spawnTimer = 1;
+
+    console.log('[GameEngine] Starting wave', this.state.wave, 'with', this.state.toSpawn, 'enemies');
     this.state.waveStartHealth = this.state.player.health;
 
     this._emitCallback('onBannerChange', `Wave ${this.state.wave}`);
@@ -2445,6 +2461,8 @@ export class GameEngine {
     // Reset state
     this.state.wave = 0;
     this.state.toSpawn = 0;
+    this.state.totalSpawnedThisWave = 0;
+    this.state.expectedThisWave = 0;
     this.state.currency = 100;
     this.state.score = 0;
     this.state.gameOver = false;
