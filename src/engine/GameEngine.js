@@ -887,10 +887,7 @@ export class GameEngine {
       if (e.code === 'Digit4' || e.code === 'Numpad4') this.setWeapon(weaponKeys[3]);
 
       // Next wave
-      if ((e.code === 'Space' || e.code === 'KeyN') && this.state.waveComplete && !this.state.gameOver) {
-        this._emitCallback('onBannerChange', '');
-        this.state.waveComplete = false;
-        this._emitCallback('onWaitingForWave', false);
+      if ((e.code === 'Space' || e.code === 'KeyN')) {
         this.startWave();
       }
 
@@ -1984,6 +1981,12 @@ export class GameEngine {
    * Start the next wave
    */
   startWave() {
+    if (!this.state.waveComplete || this.state.gameOver) return;
+
+    // Mark wave as started
+    this.state.waveComplete = false;
+    this._emitCallback('onWaitingForWave', false);
+
     this.state.wave++;
     this.state.waveComp = this._getWaveComposition(this.state.wave, this.state.endlessMode);
 
