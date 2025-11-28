@@ -2102,10 +2102,26 @@ export class GameEngine {
    * Set camera mode
    */
   setCameraMode(mode) {
+    const prevMode = this.cameraMode;
     this.cameraMode = mode;
-    if (mode !== 'FIRST_PERSON' && document.pointerLockElement) {
+
+    if (mode === 'FIRST_PERSON') {
+      // Initialize FPS look direction toward center/house
+      if (prevMode !== 'FIRST_PERSON') {
+        const dirToCenter = new THREE.Vector3().subVectors(
+          new THREE.Vector3(0, 0, 0),
+          this.state.player.pos
+        ).setY(0);
+        if (dirToCenter.lengthSq() > 0.01) {
+          this.state.player.rot = Math.atan2(dirToCenter.x, dirToCenter.z);
+        }
+        this.state.player.pitch = 0;
+      }
+    } else if (document.pointerLockElement) {
       document.exitPointerLock();
     }
+
+    console.log('[GameEngine] Camera mode:', mode);
   }
 
   /**
