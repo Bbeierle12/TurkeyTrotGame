@@ -1063,8 +1063,8 @@ export class GameEngine {
     this._updateAbilities(dt);
     this._updateDamageSystem(dt);
 
-    // Check wave completion
-    if (this.state.toSpawn === 0 && this.state.turkeys.filter(tk => !tk.dead).length === 0 && !this.state.waveComplete) {
+    // Check wave completion - only if wave > 0 and all enemies spawned and killed
+    if (this.state.wave > 0 && this.state.toSpawn === 0 && this.state.turkeys.filter(tk => !tk.dead).length === 0 && !this.state.waveComplete) {
       this._onWaveComplete();
     }
 
