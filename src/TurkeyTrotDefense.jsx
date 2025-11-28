@@ -200,7 +200,14 @@ export default function TurkeyTrotDefense() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [cameraMode, setCameraMode] = useState('ISOMETRIC');
+  const [cameraMode, setCameraModeState] = useState('ISOMETRIC');
+  const cameraModeRef = useRef('ISOMETRIC');
+
+  // Wrapper to update both state and ref
+  const setCameraMode = (mode) => {
+    cameraModeRef.current = mode;
+    setCameraModeState(mode);
+  };
 
   // Persistent stats
   const [playerStats, setPlayerStats] = useState(saveData.current.playerStats);
@@ -285,7 +292,8 @@ export default function TurkeyTrotDefense() {
       if (e.code === 'KeyF') engine.useAbility('REPAIR');
       if (e.code === 'KeyC') {
         const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
-        const nextMode = modes[(modes.indexOf(cameraMode) + 1) % modes.length];
+        const currentMode = cameraModeRef.current;
+        const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
         setCameraMode(nextMode);
         engine.setCameraMode(nextMode);
         audioManager.playSound('click');
