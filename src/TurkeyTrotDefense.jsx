@@ -361,41 +361,60 @@ export default function TurkeyTrotDefense() {
         <>
           {/* Top HUD */}
           <div className="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
-            {/* Left stats */}
-            <div className="bg-black/60 backdrop-blur rounded-xl p-4 space-y-2 pointer-events-auto">
-              <div className="flex items-center gap-2">
-                <span className="text-red-500 text-xl">❤️</span>
-                <div className="w-32 h-3 bg-gray-700 rounded-full overflow-hidden">
-                  <div className={`h-full transition-all ${lowHealth ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} style={{ width: `${stats.health}%` }} />
+            {/* Left stats - Vitals Panel */}
+            <div className="bg-black/60 backdrop-blur rounded-xl p-4 space-y-3 pointer-events-auto min-w-[200px]">
+              {/* Player Health */}
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">❤️</span>
+                <div className="flex-1">
+                  <div className="h-4 bg-gray-700 rounded-full overflow-hidden">
+                    <div className={`h-full transition-all rounded-full ${lowHealth ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} style={{ width: `${stats.health}%` }} />
+                  </div>
                 </div>
-                <span className="text-white text-sm">{stats.health}%</span>
+                <span className="text-white font-bold min-w-[3rem] text-right">{stats.health}%</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-yellow-500 text-xl">🌽</span>
-                <span className="text-yellow-400 font-bold">{stats.currency}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-blue-400 text-xl">🏠</span>
-                <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-400 transition-all" style={{ width: `${stats.houseIntegrity}%` }} />
+              
+              {/* House Integrity */}
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🏠</span>
+                <div className="flex-1">
+                  <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                    <div className={`h-full transition-all rounded-full ${stats.houseIntegrity < 25 ? 'bg-red-500' : stats.houseIntegrity < 50 ? 'bg-orange-500' : 'bg-amber-600'}`} style={{ width: `${stats.houseIntegrity}%` }} />
+                  </div>
                 </div>
-                <span className="text-white text-xs">{stats.houseIntegrity}%</span>
+                <span className="text-white text-sm min-w-[3rem] text-right">{stats.houseIntegrity}%</span>
               </div>
-              {stats.isInside && <div className="text-green-400 text-xs font-bold">INSIDE HOUSE</div>}
+              
+              {/* Currency */}
+              <div className="flex items-center gap-3 pt-1 border-t border-gray-700">
+                <span className="text-2xl">🌽</span>
+                <span className="text-yellow-400 font-bold text-xl">{stats.currency}</span>
+                <span className="text-yellow-600 text-sm">corn</span>
+                {stats.isInside && <span className="ml-auto text-green-400 text-xs font-bold bg-green-900/50 px-2 py-0.5 rounded">INSIDE</span>}
+              </div>
             </div>
 
             {/* Center wave info */}
             <div className="bg-black/60 backdrop-blur rounded-xl px-6 py-3 text-center">
-              <div className="text-orange-400 font-bold text-lg">Wave {stats.wave}</div>
-              <div className="text-gray-400 text-sm">{stats.enemies} enemies</div>
-              <div className="text-white text-sm">Score: {stats.score}</div>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-orange-400 font-bold text-lg">Wave {stats.wave}</span>
+                {endlessMode && <span className="text-purple-400 text-sm">♾️</span>}
+              </div>
+              <div className="text-gray-400 text-sm">🦃 {stats.enemies} remaining</div>
+              <div className="text-white text-sm">⭐ {stats.score}</div>
             </div>
 
             {/* Right buttons */}
             <div className="flex gap-2 pointer-events-auto">
-              <button onClick={() => { setHelpOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition">❓</button>
-              <button onClick={() => { setSettingsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition">⚙️</button>
               {settings.showFps && <div className="bg-black/60 backdrop-blur rounded-xl px-3 py-2 text-green-400 text-sm">{fps} FPS</div>}
+              <button onClick={() => { const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON']; const next = modes[(modes.indexOf(cameraMode) + 1) % modes.length]; setCameraMode(next); engineRef.current?.setCameraMode(next); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Change Camera (C)">
+                <span>📷</span>
+              </button>
+              <button onClick={() => { engineRef.current?.takeScreenshot(); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Screenshot">
+                <span>🖼️</span>
+              </button>
+              <button onClick={() => { setHelpOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Help">❓</button>
+              <button onClick={() => { setSettingsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Settings">⚙️</button>
             </div>
           </div>
 
