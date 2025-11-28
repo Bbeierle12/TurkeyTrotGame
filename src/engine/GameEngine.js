@@ -76,7 +76,7 @@ export class GameEngine {
     this.particleSystem = null;
 
     // Leaves system
-    this.leafCount = 100;
+    this.leafCount = 50;
     this.leafData = [];
     this.leafGeo = null;
 
@@ -358,26 +358,22 @@ export class GameEngine {
     this.leafGeo = new THREE.BufferGeometry();
     const leafPositions = new Float32Array(this.leafCount * 3);
     const leafColors = new Float32Array(this.leafCount * 3);
+    const leafColorOptions = [0xcc6633, 0xdd8844, 0xbb5522, 0xee9955];
 
     for (let i = 0; i < this.leafCount; i++) {
-      leafPositions[i * 3] = (Math.random() - 0.5) * 100;
-      leafPositions[i * 3 + 1] = Math.random() * 30;
-      leafPositions[i * 3 + 2] = (Math.random() - 0.5) * 100;
+      leafPositions[i * 3] = (Math.random() - 0.5) * 80;
+      leafPositions[i * 3 + 1] = Math.random() * 25 + 5;
+      leafPositions[i * 3 + 2] = (Math.random() - 0.5) * 80;
 
-      const colors = [
-        [0.8, 0.3, 0.1],
-        [0.9, 0.5, 0.1],
-        [0.7, 0.2, 0.1],
-        [0.85, 0.4, 0.15]
-      ];
-      const c = colors[Math.floor(Math.random() * colors.length)];
-      leafColors[i * 3] = c[0];
-      leafColors[i * 3 + 1] = c[1];
-      leafColors[i * 3 + 2] = c[2];
+      const col = new THREE.Color(leafColorOptions[Math.floor(Math.random() * leafColorOptions.length)]);
+      leafColors[i * 3] = col.r;
+      leafColors[i * 3 + 1] = col.g;
+      leafColors[i * 3 + 2] = col.b;
 
       this.leafData.push({
-        fallSpeed: 0.8 + Math.random() * 1.2,
+        fallSpeed: 0.5 + Math.random() * 0.8,
         swaySpeed: 1 + Math.random() * 2,
+        swayAmt: 0.5 + Math.random() * 1.5,
         rot: Math.random() * Math.PI * 2
       });
     }
@@ -389,7 +385,7 @@ export class GameEngine {
       size: 0.4,
       vertexColors: true,
       transparent: true,
-      opacity: 0.9
+      opacity: 0.85
     });
 
     this.scene.add(new THREE.Points(this.leafGeo, leafMat));
@@ -398,40 +394,53 @@ export class GameEngine {
   _initPlayer() {
     this.playerGroup = new THREE.Group();
 
-    // Body
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.35, 0.8, 8, 16),
-      new THREE.MeshStandardMaterial({ color: 0x4488cc, roughness: 0.7 })
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4169e1, roughness: 0.8 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd1a4, roughness: 0.7 });
+
+    // Torso
+    const torso = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.35, 0.6, 10),
+      bodyMat
     );
-    body.position.y = 0.75;
-    body.castShadow = true;
-    this.playerGroup.add(body);
+    torso.position.y = 0.7;
+    torso.castShadow = true;
+    this.playerGroup.add(torso);
+
+    // Legs
+    const legs = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.32, 0.28, 0.4, 10),
+      bodyMat
+    );
+    legs.position.y = 0.2;
+    legs.castShadow = true;
+    this.playerGroup.add(legs);
 
     // Head
     const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.25, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xffcc99, roughness: 0.6 })
+      new THREE.SphereGeometry(0.22, 12, 10),
+      skinMat
     );
-    head.position.y = 1.45;
+    head.position.y = 1.22;
     head.castShadow = true;
     this.playerGroup.add(head);
 
-    // Hat
-    const hat = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.35, 0.25, 16),
-      new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.8 })
+    // Hat brim (straw hat)
+    const hatBrim = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.38, 0.04, 16),
+      new THREE.MeshStandardMaterial({ color: 0xdaa520, roughness: 0.95 })
     );
-    hat.position.y = 1.75;
-    this.playerGroup.add(hat);
+    hatBrim.position.y = 1.42;
+    this.playerGroup.add(hatBrim);
 
-    const brim = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.45, 0.45, 0.05, 16),
-      new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.8 })
+    // Hat top
+    const hatTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.22, 0.18, 12),
+      new THREE.MeshStandardMaterial({ color: 0xdaa520, roughness: 0.95 })
     );
-    brim.position.y = 1.65;
-    this.playerGroup.add(brim);
+    hatTop.position.y = 1.52;
+    this.playerGroup.add(hatTop);
 
-    this.playerGroup.position.copy(this.state.player.pos);
+    this.playerGroup.position.set(0, 0, 10);
     this.scene.add(this.playerGroup);
   }
 
@@ -465,8 +474,8 @@ export class GameEngine {
     foundation.receiveShadow = true;
     this.houseGroup.add(foundation);
 
-    // Main walls
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0xc9a66b, roughness: 0.85 });
+    // Main walls - DoubleSide so walls are visible from inside
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
 
     // Front wall with door hole
     const frontWall = this._createWallWithOpening(width, height, 1.8, 2.5, 'door');
@@ -507,14 +516,14 @@ export class GameEngine {
       // Add side door
     }
 
-    // Roof
-    const roofGeo = new THREE.ConeGeometry(Math.max(width, depth) * 0.75, roofHeight, 4);
+    // Roof - DoubleSide for interior visibility
+    const roofGeo = new THREE.ConeGeometry(Math.max(width, depth) * 0.8, roofHeight, 4);
     roofGeo.rotateY(Math.PI / 4);
     const roof = new THREE.Mesh(
       roofGeo,
-      new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.8, metalness: 0.2, side: THREE.DoubleSide })
     );
-    roof.position.y = height + roofHeight / 2 + 0.3;
+    roof.position.y = height + roofHeight / 2;
     roof.castShadow = true;
     this.houseGroup.add(roof);
 
@@ -535,7 +544,7 @@ export class GameEngine {
 
   _createWallWithOpening(width, height, openingWidth, openingHeight, type) {
     const group = new THREE.Group();
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0xc9a66b, roughness: 0.85 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
     const thickness = 0.3;
 
     // Left section
@@ -577,7 +586,7 @@ export class GameEngine {
 
   _createWallWithWindows(width, height, windowCount) {
     const group = new THREE.Group();
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0xc9a66b, roughness: 0.85 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
     const thickness = 0.3;
 
     // For simplicity, create solid wall - windows are added separately
@@ -694,64 +703,75 @@ export class GameEngine {
   _initTurretPreview() {
     this.turretPreview = new THREE.Group();
 
-    const base = new THREE.Mesh(
+    const previewBase = new THREE.Mesh(
       new THREE.CylinderGeometry(0.6, 0.7, 0.3, 12),
-      new THREE.MeshStandardMaterial({
-        color: 0x00ff00,
-        transparent: true,
-        opacity: 0.5
-      })
+      new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 })
     );
-    base.position.y = 0.15;
-    this.turretPreview.add(base);
+    this.turretPreview.add(previewBase);
+    this.turretPreview.userData.base = previewBase;
 
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.4, 0.5, 0.8, 10),
-      new THREE.MeshStandardMaterial({
-        color: 0x00ff00,
-        transparent: true,
-        opacity: 0.5
-      })
-    );
-    body.position.y = 0.7;
-    this.turretPreview.add(body);
-
-    // Range indicator
-    const range = new THREE.Mesh(
+    const previewRange = new THREE.Mesh(
       new THREE.RingGeometry(0, 8, 32),
-      new THREE.MeshBasicMaterial({
-        color: 0x00ff00,
-        transparent: true,
-        opacity: 0.15,
-        side: THREE.DoubleSide
-      })
+      new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.2, side: THREE.DoubleSide })
     );
-    range.rotation.x = -Math.PI / 2;
-    range.position.y = 0.02;
-    this.turretPreview.add(range);
-    this.turretPreview.userData.rangeIndicator = range;
+    previewRange.rotation.x = -Math.PI / 2;
+    previewRange.position.y = 0.01;
+    this.turretPreview.add(previewRange);
+    this.turretPreview.userData.rangeIndicator = previewRange;
 
     this.turretPreview.visible = false;
     this.scene.add(this.turretPreview);
   }
 
   _initTrees() {
-    const treeCount = 40;
-    for (let i = 0; i < treeCount; i++) {
-      const angle = (i / treeCount) * Math.PI * 2;
-      const dist = 55 + Math.random() * 15;
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      this._createTree(x, z);
-    }
+    // Place trees around the entire perimeter of the map - dense treeline
+    const mapEdge = 65; // Position trees just outside the playable area
+    const treeSpacing = 3; // Reduced spacing for denser trees
+    const treeVariation = 1.5; // Random position variation
+
+    // Create multiple rows of trees for a dense forest edge
+    const treeRows = [0, 5, 10]; // Three rows at different depths
+
+    treeRows.forEach(rowOffset => {
+      const edgePos = mapEdge + rowOffset;
+
+      // North edge
+      for (let x = -edgePos; x <= edgePos; x += treeSpacing) {
+        const xPos = x + (Math.random() - 0.5) * treeVariation;
+        const zPos = -edgePos + (Math.random() - 0.5) * treeVariation;
+        this._createTree(xPos, zPos);
+      }
+
+      // South edge
+      for (let x = -edgePos; x <= edgePos; x += treeSpacing) {
+        const xPos = x + (Math.random() - 0.5) * treeVariation;
+        const zPos = edgePos + (Math.random() - 0.5) * treeVariation;
+        this._createTree(xPos, zPos);
+      }
+
+      // East edge (excluding corners already covered)
+      for (let z = -edgePos + treeSpacing; z < edgePos; z += treeSpacing) {
+        const xPos = edgePos + (Math.random() - 0.5) * treeVariation;
+        const zPos = z + (Math.random() - 0.5) * treeVariation;
+        this._createTree(xPos, zPos);
+      }
+
+      // West edge (excluding corners already covered)
+      for (let z = -edgePos + treeSpacing; z < edgePos; z += treeSpacing) {
+        const xPos = -edgePos + (Math.random() - 0.5) * treeVariation;
+        const zPos = z + (Math.random() - 0.5) * treeVariation;
+        this._createTree(xPos, zPos);
+      }
+    });
   }
 
   _createTree(x, z) {
     const treeGroup = new THREE.Group();
 
-    const trunkHeight = 2 + Math.random() * 1.5;
-    const trunkRadius = 0.3 + Math.random() * 0.15;
-    const foliageRadius = 1.5 + Math.random() * 0.8;
+    const trunkHeight = 2 + Math.random() * 2;
+    const trunkRadius = 0.3 + Math.random() * 0.2;
+    const foliageRadius = 1.5 + Math.random() * 1;
+    const foliageHeight = 3 + Math.random() * 2;
 
     // Trunk
     const trunk = new THREE.Mesh(
@@ -763,19 +783,52 @@ export class GameEngine {
     trunk.receiveShadow = true;
     treeGroup.add(trunk);
 
-    // Foliage
+    // Foliage - autumn colors with pine/round variation
     const foliageColors = [0xcc4422, 0xdd6633, 0xee8844, 0xbb5522, 0xaa3311, 0xff6600];
     const foliageColor = foliageColors[Math.floor(Math.random() * foliageColors.length)];
 
+    const isPine = Math.random() > 0.5;
+    let foliageGeo;
+    if (isPine) {
+      foliageGeo = new THREE.ConeGeometry(foliageRadius, foliageHeight, 8);
+    } else {
+      foliageGeo = new THREE.SphereGeometry(foliageRadius, 8, 6);
+    }
+
     const foliage = new THREE.Mesh(
-      new THREE.SphereGeometry(foliageRadius, 8, 6),
+      foliageGeo,
       new THREE.MeshStandardMaterial({ color: foliageColor, roughness: 0.9 })
     );
-    foliage.position.y = trunkHeight + foliageRadius * 0.6;
+    foliage.position.y = trunkHeight + (isPine ? foliageHeight / 2 : foliageRadius * 0.8);
     foliage.castShadow = true;
     treeGroup.add(foliage);
 
+    // Add extra foliage layers for fuller trees (non-pine only)
+    if (!isPine && Math.random() > 0.3) {
+      const extraFoliage = new THREE.Mesh(
+        new THREE.SphereGeometry(foliageRadius * 0.7, 6, 5),
+        new THREE.MeshStandardMaterial({
+          color: foliageColors[Math.floor(Math.random() * foliageColors.length)],
+          roughness: 0.9
+        })
+      );
+      extraFoliage.position.set(
+        (Math.random() - 0.5) * foliageRadius,
+        trunkHeight + foliageRadius * 0.4,
+        (Math.random() - 0.5) * foliageRadius
+      );
+      extraFoliage.castShadow = true;
+      treeGroup.add(extraFoliage);
+    }
+
+    // Position and add slight random rotation
     treeGroup.position.set(x, 0, z);
+    treeGroup.rotation.y = Math.random() * Math.PI * 2;
+
+    // Random scale variation
+    const scale = 0.8 + Math.random() * 0.5;
+    treeGroup.scale.setScalar(scale);
+
     this.scene.add(treeGroup);
   }
 
@@ -1443,6 +1496,16 @@ export class GameEngine {
     this.audioManager?.playSound('hit');
     this._emitParticles(tk.pos.clone().setY(0.5), 5, 0xff6666, { x: 1, y: 1, z: 1 }, 0.2);
 
+    // Flash red on damage
+    if (tk.body && tk.body.material) {
+      tk.body.material.color.set(0xff0000);
+      setTimeout(() => {
+        if (tk.body && tk.body.material) {
+          tk.body.material.color.set(TurkeyTypes[tk.type].body);
+        }
+      }, 80);
+    }
+
     if (tk.hp <= 0) {
       this._killTurkey(tk);
     }
@@ -1452,20 +1515,21 @@ export class GameEngine {
     tk.dead = true;
     tk.mesh.visible = false;
 
-    this.state.score += tk.value;
-    this.state.currency += Math.ceil(tk.value / 2);
+    this.state.score += tk.val;
+    this.state.currency += Math.ceil(tk.val / 2);
 
     this.audioManager?.playSound('kill');
-    this._emitParticles(tk.pos.clone(), 15, tk.bodyColor, { x: 2, y: 3, z: 2 }, 0.5);
+    const bodyColor = tk.body?.material?.color?.getHex() || TurkeyTypes[tk.type]?.body || 0x8b4513;
+    this._emitParticles(tk.pos.clone(), 15, bodyColor, { x: 2, y: 3, z: 2 }, 0.5);
 
-    // Splitter spawns smaller turkeys
-    if (tk.type === 'SPLITTER' && tk.splits) {
+    // Splitter spawns mini turkeys
+    if (tk.type === 'SPLITTER') {
       for (let i = 0; i < 2; i++) {
         const angle = Math.random() * Math.PI * 2;
         const offset = new THREE.Vector3(Math.cos(angle) * 2, 0, Math.sin(angle) * 2);
-        const newTurkey = this._createTurkey(tk.pos.clone().add(offset), 'RUNNER');
-        newTurkey.hp *= 0.5;
-        this.state.turkeys.push(newTurkey);
+        const mini = this._createTurkey(tk.pos.clone().add(offset), 'SPLITTER', tk.scale * 0.6);
+        mini.val = Math.floor(tk.val * 0.3);
+        this.state.turkeys.push(mini);
       }
     }
   }
@@ -1551,59 +1615,132 @@ export class GameEngine {
     return weighted[Math.floor(Math.random() * weighted.length)];
   }
 
-  _createTurkey(pos, type) {
+  _createTurkey(pos, type, customScale = null) {
     const stats = TurkeyTypes[type];
-    const waveScale = 1 + this.state.wave * 0.05;
+    const s = customScale || stats.scale;
 
     const group = new THREE.Group();
 
     // Body
-    const body = new THREE.Mesh(
-      new THREE.SphereGeometry(0.5 * stats.scale, 12, 10),
-      new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.8 })
+    const bodyGeo = new THREE.SphereGeometry(0.5, 14, 10);
+    bodyGeo.scale(1.1, 0.85, 1.2);
+    const bodyMesh = new THREE.Mesh(
+      bodyGeo,
+      new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.9 })
     );
-    body.scale.set(1.1, 0.9, 1.3);
-    body.castShadow = true;
-    group.add(body);
+    bodyMesh.position.y = 0.5;
+    bodyMesh.scale.setScalar(s);
+    bodyMesh.castShadow = true;
+    group.add(bodyMesh);
 
     // Head
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.25 * stats.scale, 10, 8),
-      new THREE.MeshStandardMaterial({ color: stats.head, roughness: 0.7 })
+    const headMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 10, 8),
+      new THREE.MeshStandardMaterial({ color: stats.head, roughness: 0.6 })
     );
-    head.position.set(0, 0.3 * stats.scale, 0.4 * stats.scale);
-    head.castShadow = true;
-    group.add(head);
+    headMesh.position.set(0, 0.7, 0.45);
+    headMesh.scale.setScalar(s);
+    group.add(headMesh);
 
     // Beak
     const beak = new THREE.Mesh(
-      new THREE.ConeGeometry(0.08 * stats.scale, 0.2 * stats.scale, 6),
-      new THREE.MeshStandardMaterial({ color: 0xffa500, roughness: 0.6 })
+      new THREE.ConeGeometry(0.06, 0.15, 6),
+      new THREE.MeshStandardMaterial({ color: 0xffa500 })
     );
-    beak.position.set(0, 0.25 * stats.scale, 0.6 * stats.scale);
+    beak.position.set(0, 0.68, 0.65);
     beak.rotation.x = Math.PI / 2;
+    beak.scale.setScalar(s);
     group.add(beak);
+
+    // Tail feathers
+    const tailGroup = new THREE.Group();
+    for (let i = 0; i < 7; i++) {
+      const feather = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.18, 0.4),
+        new THREE.MeshStandardMaterial({ color: i % 2 ? stats.body : 0x654321, side: THREE.DoubleSide, roughness: 0.95 })
+      );
+      feather.position.set(0, 0.65, -0.35);
+      feather.rotation.y = (i - 3) * 0.2;
+      feather.rotation.x = -0.4;
+      tailGroup.add(feather);
+    }
+    tailGroup.scale.setScalar(s);
+    group.add(tailGroup);
+
+    // Type-specific visuals
+    if (type === 'TANK') {
+      const armor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.35, 0.7),
+        new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.4 })
+      );
+      armor.position.set(0, 0.65 * s, 0);
+      group.add(armor);
+    }
+    if (type === 'BOSS') {
+      const crown = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.14, 0.12, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.9, roughness: 0.2, emissive: 0xffd700, emissiveIntensity: 0.2 })
+      );
+      crown.position.set(0, 0.95 * s, 0.35 * s);
+      group.add(crown);
+    }
+    if (type === 'HEALER') {
+      const cross = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.1, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x00ff00, emissiveIntensity: 0.5 })
+      );
+      cross.position.set(0, 0.9 * s, 0);
+      group.add(cross);
+      const crossV = cross.clone();
+      crossV.rotation.z = Math.PI / 2;
+      group.add(crossV);
+    }
+    if (type === 'SPLITTER') {
+      const glow = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0x9400d3, transparent: true, opacity: 0.3 })
+      );
+      glow.position.y = 0.5;
+      glow.scale.setScalar(s);
+      group.add(glow);
+    }
+    if (type === 'RUNNER') {
+      [-0.08, 0.08].forEach(x => {
+        const lens = new THREE.Mesh(
+          new THREE.SphereGeometry(0.04, 8, 6),
+          new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.7 })
+        );
+        lens.position.set(x * s, 0.75 * s, 0.48 * s);
+        group.add(lens);
+      });
+    }
 
     group.position.copy(pos);
     this.scene.add(group);
 
+    // Sound effect
+    if (Math.random() < 0.3) {
+      setTimeout(() => this.audioManager?.playSound('gobble'), Math.random() * 1000);
+    }
+
     return {
       mesh: group,
+      body: bodyMesh,
+      tail: tailGroup,
       pos: pos.clone(),
-      hp: stats.hp * waveScale,
-      maxHp: stats.hp * waveScale,
+      hp: stats.hp * (customScale ? customScale / stats.scale : 1),
+      maxHp: stats.hp * (customScale ? customScale / stats.scale : 1),
       spd: stats.speed,
       dmg: stats.damage,
-      value: stats.value,
-      scale: stats.scale,
+      val: stats.value,
       type,
-      dead: false,
+      scale: s,
+      bob: Math.random() * 6.28,
       slowMult: 1,
       slowTimer: 0,
-      attackCooldown: 0,
-      heals: stats.heals,
-      splits: stats.splits,
-      bodyColor: stats.body
+      dead: false,
+      healTimer: 0,
+      bossPhase: type === 'BOSS' ? 3 : 0
     };
   }
 
@@ -1639,48 +1776,86 @@ export class GameEngine {
   }
 
   _updateCamera(dt) {
-    const target = this.state.player.pos.clone().add(this.panOffset);
+    const pan = this.panOffset;
 
-    // Screen shake
-    let shakeOffset = new THREE.Vector3();
-    if (this.state.shakeDuration > 0) {
-      this.state.shakeDuration -= dt;
-      shakeOffset.set(
-        (Math.random() - 0.5) * this.state.shakeIntensity,
-        (Math.random() - 0.5) * this.state.shakeIntensity,
-        (Math.random() - 0.5) * this.state.shakeIntensity
-      );
-    }
-
-    if (this.cameraMode === 'ISOMETRIC') {
-      const offset = this.baseCamPos.clone().multiplyScalar(this.zoom);
-      offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraAngle);
-      this.camera.position.copy(target).add(offset).add(shakeOffset);
-      this.camera.lookAt(target);
-    } else if (this.cameraMode === 'TOPDOWN') {
-      const offset = this.topDownPos.clone().multiplyScalar(this.zoom);
-      this.camera.position.copy(target).add(offset).add(shakeOffset);
-      this.camera.lookAt(target);
-    } else if (this.cameraMode === 'FIRST_PERSON') {
-      const eyePos = this.state.player.pos.clone();
-      eyePos.y = 1.6;
-      this.camera.position.copy(eyePos).add(shakeOffset);
-
-      const lookDir = new THREE.Vector3(0, 0, -1);
-      lookDir.applyAxisAngle(new THREE.Vector3(1, 0, 0), this.state.player.pitch);
-      lookDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.state.player.rot);
-      this.camera.lookAt(eyePos.clone().add(lookDir));
-
-      // Update aim for FPS mode
-      this.state.aim.copy(eyePos).add(lookDir.multiplyScalar(30));
-    }
-
-    // Handle panning input
+    // Handle panning input first
     const panSpeed = 20 * dt;
     if (this.state.input.panUp) this.panOffset.z -= panSpeed;
     if (this.state.input.panDown) this.panOffset.z += panSpeed;
     if (this.state.input.panLeft) this.panOffset.x -= panSpeed;
     if (this.state.input.panRight) this.panOffset.x += panSpeed;
+
+    if (this.cameraMode === 'FIRST_PERSON') {
+      // First Person: Attach to player head, look based on mouse
+      const headPos = this.state.player.pos.clone().add(new THREE.Vector3(0, 1.6, 0));
+      this.camera.position.copy(headPos);
+
+      // Look direction based on player rotation and pitch
+      const lookDir = new THREE.Vector3(
+        Math.sin(this.state.player.rot) * Math.cos(this.state.player.pitch),
+        Math.sin(this.state.player.pitch),
+        Math.cos(this.state.player.rot) * Math.cos(this.state.player.pitch)
+      );
+      const target = headPos.clone().add(lookDir);
+      this.camera.lookAt(target);
+      this.camera.up.set(0, 1, 0);
+
+      // Hide player model in FPS mode
+      if (this.playerGroup) this.playerGroup.visible = false;
+
+      // Screen shake for FPS
+      if (this.state.shakeDuration > 0) {
+        this.state.shakeDuration -= dt;
+        const shake = this.state.shakeIntensity * 0.02;
+        this.camera.rotation.x += (Math.random() - 0.5) * shake;
+        this.camera.rotation.y += (Math.random() - 0.5) * shake;
+      }
+
+      // Update aim for FPS mode
+      this.state.aim.copy(headPos).add(lookDir.multiplyScalar(30));
+    } else if (this.cameraMode === 'TOPDOWN') {
+      // Show player in other modes
+      if (this.playerGroup) this.playerGroup.visible = true;
+
+      // Top Down: High above, looking straight down
+      const targetPos = this.state.player.pos.clone().add(pan).add(new THREE.Vector3(0, 50 * this.zoom, 0));
+
+      // Rotate camera orientation based on angle
+      this.camera.up.set(Math.sin(this.cameraAngle), 0, Math.cos(this.cameraAngle));
+
+      this.camera.position.lerp(targetPos, 0.1);
+      this.camera.lookAt(this.state.player.pos.clone().add(pan));
+    } else {
+      // Show player in isometric mode
+      if (this.playerGroup) this.playerGroup.visible = true;
+
+      // Isometric (Default): Follow player with offset + Rotation + Pan
+      const dist = 40 * this.zoom;
+      const height = 32 * this.zoom;
+
+      // Calculate offset based on angle
+      const rotOffset = new THREE.Vector3(
+        dist * Math.sin(this.cameraAngle),
+        height,
+        dist * Math.cos(this.cameraAngle)
+      );
+
+      const targetPos = this.state.player.pos.clone().add(pan).add(rotOffset);
+
+      // Screen shake
+      if (this.state.shakeDuration > 0) {
+        this.state.shakeDuration -= dt;
+        const shake = this.state.shakeIntensity * (this.state.shakeDuration > 0 ? 1 : 0);
+        targetPos.add(new THREE.Vector3(
+          (Math.random() - 0.5) * shake,
+          (Math.random() - 0.5) * shake * 0.5,
+          (Math.random() - 0.5) * shake * 0.3
+        ));
+      }
+
+      this.camera.position.lerp(targetPos, 0.1);
+      this.camera.lookAt(this.state.player.pos.clone().add(pan));
+    }
   }
 
   _updateVisuals(dt, t) {
@@ -1772,6 +1947,17 @@ export class GameEngine {
       if (d < radius) {
         const falloff = 1 - d / radius;
         tk.hp -= damage * falloff;
+
+        // Flash red on damage
+        if (tk.body && tk.body.material) {
+          tk.body.material.color.set(0xff0000);
+          setTimeout(() => {
+            if (tk.body && tk.body.material) {
+              tk.body.material.color.set(TurkeyTypes[tk.type].body);
+            }
+          }, 80);
+        }
+
         if (tk.hp <= 0) this._killTurkey(tk);
       }
     }
@@ -1980,13 +2166,22 @@ export class GameEngine {
 
     // Type-specific decorations
     if (type === 'BASIC') {
+      // Scarecrow head
       const head = new THREE.Mesh(
         new THREE.SphereGeometry(0.25, 10, 8),
         new THREE.MeshStandardMaterial({ color: 0xdaa520, roughness: 0.95 })
       );
       head.position.y = 1.3;
       group.add(head);
+      // Hat
+      const hat = new THREE.Mesh(
+        new THREE.ConeGeometry(0.3, 0.4, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2d1f14 })
+      );
+      hat.position.y = 1.6;
+      group.add(hat);
     } else if (type === 'SLOW') {
+      // Ice crystal
       const crystal = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.25),
         new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.8, emissive: 0x88ccff, emissiveIntensity: 0.3 })
@@ -1994,6 +2189,7 @@ export class GameEngine {
       crystal.position.y = 1.3;
       group.add(crystal);
     } else if (type === 'EXPLOSIVE') {
+      // Corn silo top
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(0.4, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
         new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.7 })
@@ -2001,6 +2197,16 @@ export class GameEngine {
       dome.position.y = 1.1;
       group.add(dome);
     }
+
+    // Range indicator (hidden by default)
+    const rangeIndicator = new THREE.Mesh(
+      new THREE.RingGeometry(0, stats.range, 32),
+      new THREE.MeshBasicMaterial({ color: stats.color, transparent: true, opacity: 0.1, side: THREE.DoubleSide })
+    );
+    rangeIndicator.rotation.x = -Math.PI / 2;
+    rangeIndicator.position.y = 0.02;
+    rangeIndicator.visible = false;
+    group.add(rangeIndicator);
 
     // Health bar
     const healthBarGroup = new THREE.Group();
@@ -2024,8 +2230,17 @@ export class GameEngine {
 
     return {
       mesh: group,
+      range: rangeIndicator,
       pos: pos.clone(),
       type,
+      damage: stats.damage,
+      fireRate: stats.fireRate,
+      turretRange: stats.range,
+      slow: stats.slow || 0,
+      slowDuration: stats.slowDuration || 0,
+      splash: stats.splash || 0,
+      lastFire: 0,
+      target: null,
       health: stats.health,
       maxHealth: stats.health,
       cooldown: 0,
