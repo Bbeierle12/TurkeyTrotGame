@@ -1981,7 +1981,15 @@ export class GameEngine {
    * Start the next wave
    */
   startWave() {
-    if (!this.state.waveComplete || this.state.gameOver) return;
+    // Guard: must be started, waiting for wave, and not game over
+    if (!this.state.started || !this.state.waveComplete || this.state.gameOver) {
+      console.log('[GameEngine] startWave blocked:', {
+        started: this.state.started,
+        waveComplete: this.state.waveComplete,
+        gameOver: this.state.gameOver
+      });
+      return;
+    }
 
     // Mark wave as started
     this.state.waveComplete = false;
@@ -2052,10 +2060,11 @@ export class GameEngine {
   }
 
   _onWaveComplete() {
+    console.log('[GameEngine] Wave', this.state.wave, 'complete! Setting waveComplete=true');
     this.state.waveComplete = true;
     this._emitCallback('onWaveComplete', this.state.wave);
     this._emitCallback('onWaitingForWave', true);
-    this._emitCallback('onBannerChange', `Wave ${this.state.wave} Complete! Press SPACE for next wave`);
+    this._emitCallback('onBannerChange', `Wave ${this.state.wave} Complete!`);
     this.audioManager?.playSound('wave');
 
     // Bonus currency
