@@ -48,6 +48,20 @@ export const SettingsDefinitions = {
     step: 0.1,
     description: 'Camera shake intensity when firing'
   },
+  cameraRelativeMovement: {
+    category: 'controls',
+    label: 'Camera-Relative Movement',
+    type: 'toggle',
+    default: true,
+    description: 'WASD moves relative to camera direction (recommended)'
+  },
+  invertX: {
+    category: 'controls',
+    label: 'Invert X-Axis',
+    type: 'toggle',
+    default: false,
+    description: 'Invert horizontal mouse movement'
+  },
 
   // === CAMERA ===
   zoomSensitivity: {
@@ -312,7 +326,9 @@ export const GameEngineSettings = [
   'playerSpeed',
   'mouseSensitivity',
   'invertY',
+  'invertX',
   'screenShake',
+  'cameraRelativeMovement',
   'zoomSensitivity',
   'zoomMin',
   'zoomMax',

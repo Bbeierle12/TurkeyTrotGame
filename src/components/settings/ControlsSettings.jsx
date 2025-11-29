@@ -4,7 +4,6 @@
 
 import SettingSlider from './SettingSlider';
 import SettingToggle from './SettingToggle';
-import { getSettingsByCategory } from '../../config/SettingsConfig';
 
 export default function ControlsSettings({ settings, onSettingChange }) {
   return (
@@ -31,10 +30,24 @@ export default function ControlsSettings({ settings, onSettingChange }) {
       />
 
       <SettingToggle
+        label="Camera-Relative Movement"
+        value={settings.cameraRelativeMovement}
+        onChange={(value) => onSettingChange('cameraRelativeMovement', value)}
+        description="WASD moves relative to camera direction (recommended)"
+      />
+
+      <SettingToggle
         label="Invert Y-Axis"
         value={settings.invertY}
         onChange={(value) => onSettingChange('invertY', value)}
         description="Invert vertical mouse movement"
+      />
+
+      <SettingToggle
+        label="Invert X-Axis"
+        value={settings.invertX}
+        onChange={(value) => onSettingChange('invertX', value)}
+        description="Invert horizontal mouse movement"
       />
 
       <SettingSlider

@@ -958,10 +958,11 @@ export class GameEngine {
 
   _onMouseMove(e) {
     if (this.cameraMode === 'FIRST_PERSON' && this.pointerLocked) {
-      // FPS mouse look with sensitivity and invert Y settings
+      // FPS mouse look with sensitivity and invert settings
       const sens = this.settings.mouseSensitivity * 0.002;
+      const xMult = this.settings.invertX ? 1 : -1;
       const yMult = this.settings.invertY ? 1 : -1;
-      this.state.player.rot -= e.movementX * sens;
+      this.state.player.rot += e.movementX * sens * xMult;
       this.state.player.pitch += e.movementY * sens * yMult;
       this.state.player.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.state.player.pitch));
     } else {
@@ -1116,9 +1117,13 @@ export class GameEngine {
     if (move.lengthSq() > 0) {
       move.normalize();
 
-      // In FPS mode, movement is relative to player rotation
+      // Apply rotation based on camera mode and settings
       if (this.cameraMode === 'FIRST_PERSON') {
+        // In FPS mode, movement is always relative to player rotation
         move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.state.player.rot);
+      } else if (this.settings.cameraRelativeMovement) {
+        // In other modes, optionally rotate movement to match camera angle
+        move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraAngle);
       }
 
       const newPos = this.state.player.pos.clone().addScaledVector(move, speed * dt);
