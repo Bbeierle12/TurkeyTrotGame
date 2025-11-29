@@ -1119,8 +1119,8 @@ export class GameEngine {
 
       // Apply rotation based on camera mode and settings
       if (this.cameraMode === 'FIRST_PERSON') {
-        // In FPS mode, movement is always relative to player rotation
-        move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.state.player.rot);
+        // In FPS mode, movement relative to look direction (add PI to align with look vector)
+        move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.state.player.rot + Math.PI);
       } else if (this.settings.cameraRelativeMovement) {
         // In other modes, optionally rotate movement to match camera angle
         move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraAngle);
