@@ -16,6 +16,8 @@ import {
   AbilityTypes
 } from './engine/GameEngine.js';
 import { Achievements } from './engine/GameConfig.js';
+import { SettingsModal } from './components/settings';
+import { getDefaultSettings, GameEngineSettings, AudioSettings } from './config/SettingsConfig';
 
 // =========================
 // AUDIO MANAGER
@@ -132,10 +134,7 @@ const getDefaultSaveData = () => ({
     endlessHighWave: 0, perfectWaves: 0, gamesPlayed: 0, highScore: 0
   },
   unlockedAchievements: [],
-  settings: {
-    masterVolume: 0.7, sfxVolume: 0.8, musicVolume: 0.5,
-    muted: false, showFps: false, showMinimap: true
-  },
+  settings: getDefaultSettings(),
   version: 2
 });
 
@@ -219,12 +218,43 @@ export default function TurkeyTrotDefense() {
   const updateSetting = useCallback((key, value) => {
     setSettings(prev => {
       const newSettings = { ...prev, [key]: value };
+      // Audio settings
       if (key === 'masterVolume') audioManager.setMasterVolume(value);
       if (key === 'sfxVolume') audioManager.setSfxVolume(value);
       if (key === 'musicVolume') audioManager.setMusicVolume(value);
       if (key === 'muted') audioManager.setMuted(value);
+      // Forward game engine settings
+      if (GameEngineSettings.includes(key)) {
+        engineRef.current?.updateSettings({ [key]: value });
+      }
       saveGameData(playerStats, unlockedAchievements, newSettings);
       return newSettings;
+    });
+  }, [playerStats, unlockedAchievements]);
+
+  // Batch update settings (for presets)
+  const updateBatchSettings = useCallback((newSettings) => {
+    setSettings(prev => {
+      const merged = { ...prev, ...newSettings };
+      // Apply audio settings
+      Object.entries(newSettings).forEach(([key, value]) => {
+        if (key === 'masterVolume') audioManager.setMasterVolume(value);
+        if (key === 'sfxVolume') audioManager.setSfxVolume(value);
+        if (key === 'musicVolume') audioManager.setMusicVolume(value);
+        if (key === 'muted') audioManager.setMuted(value);
+      });
+      // Forward game engine settings
+      const engineSettings = {};
+      Object.entries(newSettings).forEach(([key, value]) => {
+        if (GameEngineSettings.includes(key)) {
+          engineSettings[key] = value;
+        }
+      });
+      if (Object.keys(engineSettings).length > 0) {
+        engineRef.current?.updateSettings(engineSettings);
+      }
+      saveGameData(playerStats, unlockedAchievements, merged);
+      return merged;
     });
   }, [playerStats, unlockedAchievements]);
 
@@ -249,6 +279,15 @@ export default function TurkeyTrotDefense() {
     const engine = new GameEngine();
     engineRef.current = engine;
     engine.init(containerRef.current, audioManager);
+
+    // Apply initial settings to engine
+    const engineSettings = {};
+    GameEngineSettings.forEach(key => {
+      if (settings[key] !== undefined) {
+        engineSettings[key] = settings[key];
+      }
+    });
+    engine.updateSettings(engineSettings);
 
     // Register callbacks for UI updates
     engine.on('onStatsUpdate', setStats);
@@ -611,41 +650,14 @@ export default function TurkeyTrotDefense() {
       )}
 
       {/* Settings modal */}
-      {settingsOpen && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-30">
-          <div className="bg-gray-900 rounded-2xl p-6 max-w-md w-full mx-4 border border-gray-700">
-            <h2 className="text-2xl font-bold text-white mb-4">Settings</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="text-white text-sm block mb-2">Master Volume</label>
-                <input type="range" min="0" max="1" step="0.1" value={settings.masterVolume} onChange={(e) => updateSetting('masterVolume', parseFloat(e.target.value))} className="w-full" />
-              </div>
-              <div>
-                <label className="text-white text-sm block mb-2">SFX Volume</label>
-                <input type="range" min="0" max="1" step="0.1" value={settings.sfxVolume} onChange={(e) => updateSetting('sfxVolume', parseFloat(e.target.value))} className="w-full" />
-              </div>
-              <div>
-                <label className="text-white text-sm block mb-2">Music Volume</label>
-                <input type="range" min="0" max="1" step="0.1" value={settings.musicVolume} onChange={(e) => updateSetting('musicVolume', parseFloat(e.target.value))} className="w-full" />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-white">Mute All</span>
-                <button onClick={() => updateSetting('muted', !settings.muted)} className={`px-4 py-2 rounded-lg transition ${settings.muted ? 'bg-red-500' : 'bg-green-500'}`}>
-                  {settings.muted ? 'Muted' : 'On'}
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-white">Show FPS</span>
-                <button onClick={() => updateSetting('showFps', !settings.showFps)} className={`px-4 py-2 rounded-lg transition ${settings.showFps ? 'bg-green-500' : 'bg-gray-600'}`}>
-                  {settings.showFps ? 'On' : 'Off'}
-                </button>
-              </div>
-            </div>
-            <button onClick={() => { setSettingsOpen(false); audioManager.playSound('click'); }}
-              className="w-full mt-6 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition">Close (ESC)</button>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onSettingChange={updateSetting}
+        onBatchSettingChange={updateBatchSettings}
+        onPlaySound={(sound) => audioManager.playSound(sound)}
+      />
 
       {/* Achievements modal */}
       {achievementsOpen && (

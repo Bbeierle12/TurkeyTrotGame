@@ -92,6 +92,23 @@ export class GameEngine {
     // Audio manager reference (passed from React)
     this.audioManager = null;
 
+    // User settings (can be updated from React)
+    this.settings = {
+      playerSpeed: 8,
+      mouseSensitivity: 1.0,
+      invertY: false,
+      screenShake: 1.0,
+      zoomSensitivity: 1.0,
+      zoomMin: 0.5,
+      zoomMax: 2.0,
+      panSpeed: 20,
+      cameraSmoothing: 0.1,
+      fov: 50,
+      particleCount: 500,
+      shadowQuality: 'MEDIUM',
+      antialiasing: true
+    };
+
     // Core game state
     this.state = {
       started: false,
@@ -941,9 +958,11 @@ export class GameEngine {
 
   _onMouseMove(e) {
     if (this.cameraMode === 'FIRST_PERSON' && this.pointerLocked) {
-      // FPS mouse look
-      this.state.player.rot -= e.movementX * 0.002;
-      this.state.player.pitch -= e.movementY * 0.002;
+      // FPS mouse look with sensitivity and invert Y settings
+      const sens = this.settings.mouseSensitivity * 0.002;
+      const yMult = this.settings.invertY ? 1 : -1;
+      this.state.player.rot -= e.movementX * sens;
+      this.state.player.pitch += e.movementY * sens * yMult;
       this.state.player.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.state.player.pitch));
     } else {
       // Update aim position from mouse
@@ -1007,8 +1026,9 @@ export class GameEngine {
   }
 
   _onWheel(e) {
-    // Zoom control
-    this.zoom = Math.max(0.5, Math.min(2, this.zoom - e.deltaY * 0.001));
+    // Zoom control with settings
+    const zoomDelta = e.deltaY * 0.001 * this.settings.zoomSensitivity;
+    this.zoom = Math.max(this.settings.zoomMin, Math.min(this.settings.zoomMax, this.zoom - zoomDelta));
   }
 
   _onPointerLockChange() {
@@ -1085,7 +1105,7 @@ export class GameEngine {
 
   _updatePlayer(dt, t) {
     // Movement
-    const speed = 8;
+    const speed = this.settings.playerSpeed;
     const move = new THREE.Vector3();
 
     if (this.state.input.w) move.z -= 1;
@@ -1182,8 +1202,8 @@ export class GameEngine {
       this.state.projectiles.push(proj);
     }
 
-    // Screen shake
-    this.state.shakeIntensity = 0.2;
+    // Screen shake (multiplied by settings)
+    this.state.shakeIntensity = 0.2 * this.settings.screenShake;
     this.state.shakeDuration = 0.1;
   }
 
@@ -1788,7 +1808,7 @@ export class GameEngine {
     const pan = this.panOffset;
 
     // Handle panning input first
-    const panSpeed = 20 * dt;
+    const panSpeed = this.settings.panSpeed * dt;
     if (this.state.input.panUp) this.panOffset.z -= panSpeed;
     if (this.state.input.panDown) this.panOffset.z += panSpeed;
     if (this.state.input.panLeft) this.panOffset.x -= panSpeed;
@@ -1832,7 +1852,7 @@ export class GameEngine {
       // Rotate camera orientation based on angle
       this.camera.up.set(Math.sin(this.cameraAngle), 0, Math.cos(this.cameraAngle));
 
-      this.camera.position.lerp(targetPos, 0.1);
+      this.camera.position.lerp(targetPos, this.settings.cameraSmoothing);
       this.camera.lookAt(this.state.player.pos.clone().add(pan));
     } else {
       // Show player in isometric mode
@@ -1862,7 +1882,7 @@ export class GameEngine {
         ));
       }
 
-      this.camera.position.lerp(targetPos, 0.1);
+      this.camera.position.lerp(targetPos, this.settings.cameraSmoothing);
       this.camera.lookAt(this.state.player.pos.clone().add(pan));
     }
   }
@@ -2565,6 +2585,49 @@ export class GameEngine {
    */
   getUpgrades() {
     return { ...this.state.upgrades };
+  }
+
+  /**
+   * Update settings from React
+   */
+  updateSettings(newSettings) {
+    const prevSettings = { ...this.settings };
+    this.settings = { ...this.settings, ...newSettings };
+
+    // Handle FOV changes
+    if (newSettings.fov !== undefined && newSettings.fov !== prevSettings.fov && this.camera) {
+      this.camera.fov = newSettings.fov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    // Handle shadow quality changes (requires light rebuild)
+    if (newSettings.shadowQuality !== undefined && newSettings.shadowQuality !== prevSettings.shadowQuality) {
+      this._updateShadowQuality(newSettings.shadowQuality);
+    }
+
+    // Handle particle count changes
+    if (newSettings.particleCount !== undefined && newSettings.particleCount !== prevSettings.particleCount) {
+      this.maxParticles = newSettings.particleCount;
+    }
+  }
+
+  /**
+   * Update shadow quality
+   */
+  _updateShadowQuality(quality) {
+    const sizeMap = { LOW: 512, MEDIUM: 2048, HIGH: 4096 };
+    const size = sizeMap[quality] || 2048;
+
+    // Find the sun light (directional light with shadows)
+    this.scene?.traverse((obj) => {
+      if (obj.isDirectionalLight && obj.castShadow) {
+        obj.shadow.mapSize.set(size, size);
+        if (obj.shadow.map) {
+          obj.shadow.map.dispose();
+          obj.shadow.map = null;
+        }
+      }
+    });
   }
 
   /**
