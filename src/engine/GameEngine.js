@@ -83,7 +83,7 @@ export class GameEngine {
     // Camera settings
     this.cameraMode = 'ISOMETRIC';
     this.zoom = 1.0;
-    this.cameraAngle = 0;
+    this.cameraAngle = Math.PI; // Camera behind player so W moves "forward" on screen
     this.panOffset = new THREE.Vector3();
     this.baseCamPos = new THREE.Vector3(0, 32, 40);
     this.topDownPos = new THREE.Vector3(0, 60, 0);
@@ -923,7 +923,7 @@ export class GameEngine {
       // Reset camera
       if (e.code === 'KeyZ') {
         this.panOffset.set(0, 0, 0);
-        this.cameraAngle = 0;
+        this.cameraAngle = Math.PI; // Reset to default behind-player view
         this.audioManager?.playSound('click');
       }
     }
