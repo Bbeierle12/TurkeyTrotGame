@@ -1170,19 +1170,90 @@ export class GameEngine {
     const halfW = houseData.width / 2;
     const halfD = houseData.depth / 2;
     const wallBuffer = 0.5;
+    const doorHalfWidth = 0.9; // Door opening is 1.8 wide, so half is 0.9
 
-    // Simplified collision - just prevent entering house walls
-    const insideX = newPos.x > -halfW + wallBuffer && newPos.x < halfW - wallBuffer;
-    const insideZ = newPos.z > -halfD + wallBuffer && newPos.z < halfD - wallBuffer;
+    // Check if position is in the interior zone
+    const inInteriorX = newPos.x > -halfW && newPos.x < halfW;
+    const inInteriorZ = newPos.z > -halfD && newPos.z < halfD;
+    
+    // Check if position is at a door opening (X within door width)
+    const atFrontDoor = Math.abs(newPos.x) < doorHalfWidth && newPos.z > 0;
+    const atBackDoor = Math.abs(newPos.x) < doorHalfWidth && newPos.z < 0 && 
+                       this.houseDoors.some(d => d.name === 'back');
 
     if (!this.state.player.isInside) {
-      // Outside - prevent entering through walls
-      if (insideX && insideZ) {
-        // Push back
-        if (this.state.player.pos.z > halfD) newPos.z = halfD + wallBuffer;
-        else if (this.state.player.pos.z < -halfD) newPos.z = -halfD - wallBuffer;
-        if (this.state.player.pos.x > halfW) newPos.x = halfW + wallBuffer;
-        else if (this.state.player.pos.x < -halfW) newPos.x = -halfW - wallBuffer;
+      // Player is outside - check wall collisions individually
+      
+      // Front wall (positive Z) - allow through door only
+      if (inInteriorX && newPos.z < halfD + wallBuffer && newPos.z > halfD - wallBuffer) {
+        if (!atFrontDoor) {
+          newPos.z = halfD + wallBuffer;
+        } else if (newPos.z < halfD - wallBuffer) {
+          // Entering through front door
+          this.state.player.isInside = true;
+        }
+      }
+      
+      // Back wall (negative Z) - allow through door only if exists
+      if (inInteriorX && newPos.z > -halfD - wallBuffer && newPos.z < -halfD + wallBuffer) {
+        if (!atBackDoor) {
+          newPos.z = -halfD - wallBuffer;
+        } else if (newPos.z > -halfD + wallBuffer) {
+          // Entering through back door
+          this.state.player.isInside = true;
+        }
+      }
+      
+      // Left wall (negative X) - solid wall
+      if (inInteriorZ && newPos.x > -halfW - wallBuffer && newPos.x < -halfW + wallBuffer) {
+        newPos.x = -halfW - wallBuffer;
+      }
+      
+      // Right wall (positive X) - solid wall
+      if (inInteriorZ && newPos.x < halfW + wallBuffer && newPos.x > halfW - wallBuffer) {
+        newPos.x = halfW + wallBuffer;
+      }
+      
+      // Prevent corner clipping - if fully inside, push out to nearest edge
+      if (newPos.x > -halfW + wallBuffer && newPos.x < halfW - wallBuffer &&
+          newPos.z > -halfD + wallBuffer && newPos.z < halfD - wallBuffer) {
+        // Calculate distances to each wall
+        const distToFront = halfD - newPos.z;
+        const distToBack = newPos.z + halfD;
+        const distToLeft = newPos.x + halfW;
+        const distToRight = halfW - newPos.x;
+        
+        // Find minimum distance and push out through that wall (or door)
+        const minDist = Math.min(distToFront, distToBack, distToLeft, distToRight);
+        
+        if (minDist === distToFront) {
+          if (atFrontDoor) {
+            this.state.player.isInside = true;
+          } else {
+            newPos.z = halfD + wallBuffer;
+          }
+        } else if (minDist === distToBack) {
+          if (atBackDoor) {
+            this.state.player.isInside = true;
+          } else {
+            newPos.z = -halfD - wallBuffer;
+          }
+        } else if (minDist === distToLeft) {
+          newPos.x = -halfW - wallBuffer;
+        } else {
+          newPos.x = halfW + wallBuffer;
+        }
+      }
+    } else {
+      // Player is inside - allow exit through doors
+      if (atFrontDoor && newPos.z > halfD) {
+        this.state.player.isInside = false;
+      } else if (atBackDoor && newPos.z < -halfD) {
+        this.state.player.isInside = false;
+      } else {
+        // Keep player inside bounds
+        newPos.x = Math.max(-halfW + wallBuffer, Math.min(halfW - wallBuffer, newPos.x));
+        newPos.z = Math.max(-halfD + wallBuffer, Math.min(halfD - wallBuffer, newPos.z));
       }
     }
   }
