@@ -258,6 +258,7 @@ export class GameEngine {
     this._initHouse();
     this._initTurretPreview();
     this._initTrees();
+    this._initMountains();
     this._initInputHandlers();
     this._initDamageSystems();
 
@@ -849,6 +850,119 @@ export class GameEngine {
     treeGroup.scale.setScalar(scale);
 
     this.scene.add(treeGroup);
+  }
+
+  _initMountains() {
+    // Configuration
+    const ringRadius = 90;
+    const radiusVariation = 8;
+    const primaryPeakCount = 28;
+    const clustersPerPeak = 2;
+    const clusterSpread = 8;
+
+    // Color palette (muted purple/blue-gray for atmospheric depth)
+    const colors = [
+      new THREE.Color(0x5a4a6a),  // Purple-gray
+      new THREE.Color(0x6a5a7a),  // Light purple-gray
+      new THREE.Color(0x4a4a5a),  // Blue-gray
+      new THREE.Color(0x7a6a5a),  // Warm brown-gray
+    ];
+
+    // Geometries (low-poly cones with 6 sides)
+    const largeGeo = new THREE.ConeGeometry(10, 28, 6, 1);
+    const smallGeo = new THREE.ConeGeometry(5, 14, 6, 1);
+    const snowCapGeo = new THREE.ConeGeometry(3, 5, 6, 1);
+
+    // Materials
+    const mountainMat = new THREE.MeshStandardMaterial({
+      color: 0x5a5a6a,
+      roughness: 0.95,
+      flatShading: true,
+    });
+
+    const snowMat = new THREE.MeshStandardMaterial({
+      color: 0xeeeeff,
+      roughness: 0.7,
+      flatShading: true,
+    });
+
+    // Create InstancedMeshes
+    const totalSmall = primaryPeakCount * clustersPerPeak;
+    const largeMountains = new THREE.InstancedMesh(largeGeo, mountainMat, primaryPeakCount);
+    const smallMountains = new THREE.InstancedMesh(smallGeo, mountainMat.clone(), totalSmall);
+    const snowCaps = new THREE.InstancedMesh(snowCapGeo, snowMat, primaryPeakCount);
+
+    // Disable shadows (outside shadow camera bounds at ±80)
+    largeMountains.castShadow = false;
+    largeMountains.receiveShadow = false;
+    smallMountains.castShadow = false;
+    smallMountains.receiveShadow = false;
+    snowCaps.castShadow = false;
+    snowCaps.receiveShadow = false;
+
+    // Temp objects for matrix composition
+    const tempMatrix = new THREE.Matrix4();
+    const tempPos = new THREE.Vector3();
+    const tempQuat = new THREE.Quaternion();
+    const tempScale = new THREE.Vector3();
+
+    // Position primary peaks around ring with snow caps
+    for (let i = 0; i < primaryPeakCount; i++) {
+      const angle = (i / primaryPeakCount) * Math.PI * 2;
+      const radius = ringRadius + (Math.random() - 0.5) * radiusVariation;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      const scale = 0.8 + Math.random() * 0.5;
+      const height = 28 * scale;
+
+      // Mountain peak
+      tempPos.set(x, height * 0.5, z);
+      tempQuat.identity();
+      tempScale.set(scale, scale, scale);
+      tempMatrix.compose(tempPos, tempQuat, tempScale);
+      largeMountains.setMatrixAt(i, tempMatrix);
+      largeMountains.setColorAt(i, colors[Math.floor(Math.random() * colors.length)]);
+
+      // Snow cap on top
+      const snowScale = scale * 0.8;
+      tempPos.set(x, height - 2 * scale, z);
+      tempScale.set(snowScale, snowScale, snowScale);
+      tempMatrix.compose(tempPos, tempQuat, tempScale);
+      snowCaps.setMatrixAt(i, tempMatrix);
+    }
+
+    // Position cluster peaks (smaller, no snow caps)
+    let idx = 0;
+    for (let i = 0; i < primaryPeakCount; i++) {
+      const primaryAngle = (i / primaryPeakCount) * Math.PI * 2;
+      for (let c = 0; c < clustersPerPeak; c++) {
+        const angle = primaryAngle + (Math.random() - 0.5) * 0.4;
+        const radius = ringRadius + (Math.random() - 0.5) * clusterSpread * 2;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        const scale = 0.4 + Math.random() * 0.4;
+        const height = 14 * scale;
+
+        tempPos.set(x, height * 0.5, z);
+        tempScale.set(scale, scale, scale);
+        tempMatrix.compose(tempPos, tempQuat, tempScale);
+        smallMountains.setMatrixAt(idx, tempMatrix);
+        smallMountains.setColorAt(idx, colors[Math.floor(Math.random() * colors.length)]);
+        idx++;
+      }
+    }
+
+    // Update instance buffers
+    largeMountains.instanceMatrix.needsUpdate = true;
+    largeMountains.instanceColor.needsUpdate = true;
+    smallMountains.instanceMatrix.needsUpdate = true;
+    smallMountains.instanceColor.needsUpdate = true;
+    snowCaps.instanceMatrix.needsUpdate = true;
+
+    // Add to scene
+    this.scene.add(largeMountains);
+    this.scene.add(smallMountains);
+    this.scene.add(snowCaps);
   }
 
   _initDamageSystems() {
