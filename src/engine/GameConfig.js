@@ -18,20 +18,20 @@ export const WeaponTypes = {
     pierce: 0, splash: 0, slow: 0.45, color: 0xfffef0, sound: 'egg',
     description: 'Rapid fire, slows enemies'
   },
-  PUMPKIN_MORTAR: {
-    name: 'Pumpkin Mortar', icon: '🎃', damage: 90, fireRate: 0.35, speed: 14,
-    pierce: 0, splash: 5.5, slow: 0, color: 0xff6600, arc: true, sound: 'mortar',
+  HAY_BALE_CATAPULT: {
+    name: 'Hay Bale Catapult', icon: '🌾', damage: 90, fireRate: 0.35, speed: 14,
+    pierce: 0, splash: 5.5, slow: 0, color: 0xc9a23a, arc: true, sound: 'mortar',
     description: 'High damage artillery'
   }
 };
 
-export const TurkeyTypes = {
-  STANDARD: { name: 'Turkey', hp: 35, speed: 1.0, damage: 8, value: 10, scale: 1.0, body: 0x8b4513, head: 0xdc143c },
-  RUNNER: { name: 'Runner', hp: 22, speed: 1.8, damage: 6, value: 12, scale: 0.8, body: 0x654321, head: 0xff4500 },
-  TANK: { name: 'Tank', hp: 120, speed: 0.6, damage: 20, value: 30, scale: 1.4, body: 0x4a3728, head: 0x8b0000 },
-  HEALER: { name: 'Healer', hp: 40, speed: 0.9, damage: 5, value: 20, scale: 0.9, body: 0x2e8b57, head: 0x90ee90, heals: true },
-  SPLITTER: { name: 'Splitter', hp: 60, speed: 1.0, damage: 12, value: 25, scale: 1.1, body: 0x4b0082, head: 0x9400d3, splits: true },
-  BOSS: { name: 'Boss', hp: 800, speed: 0.5, damage: 40, value: 200, scale: 2.2, body: 0x2d1f14, head: 0x660000, phases: 3 }
+export const ZombieTypes = {
+  STANDARD: { name: 'Walker', hp: 35, speed: 1.0, damage: 8, value: 10, scale: 1.0, body: 0x4a5a4a, head: 0x6b7b6b },
+  RUNNER: { name: 'Sprinter', hp: 22, speed: 1.8, damage: 6, value: 12, scale: 0.8, body: 0x3a4a3a, head: 0x5a6a5a },
+  TANK: { name: 'Brute', hp: 120, speed: 0.6, damage: 20, value: 30, scale: 1.4, body: 0x2a3a2a, head: 0x4a5a4a },
+  HEALER: { name: 'Necromancer', hp: 40, speed: 0.9, damage: 5, value: 20, scale: 0.9, body: 0x4a2a6a, head: 0x8a5aaa, heals: true },
+  SPLITTER: { name: 'Bloater', hp: 60, speed: 1.0, damage: 12, value: 25, scale: 1.1, body: 0x5a6a3a, head: 0x7a8a5a, splits: true },
+  BOSS: { name: 'Overlord', hp: 800, speed: 0.5, damage: 40, value: 200, scale: 2.2, body: 0x2a1a2a, head: 0x4a2a4a, phases: 3 }
 };
 
 export const HouseUpgrades = {
@@ -87,7 +87,7 @@ export const TurretTypes = {
 
 export const AbilityTypes = {
   AIRSTRIKE: {
-    name: 'Turkey Bomb', icon: '💣', cooldown: 45, duration: 0,
+    name: 'Artillery Strike', icon: '💣', cooldown: 45, duration: 0,
     description: 'Call in an explosive airstrike at cursor position',
     damage: 150, radius: 8
   },
@@ -97,7 +97,7 @@ export const AbilityTypes = {
     slowAmount: 0.9
   },
   RAGE: {
-    name: 'Harvest Rage', icon: '🔥', cooldown: 40, duration: 10,
+    name: 'Survival Fury', icon: '🔥', cooldown: 40, duration: 10,
     description: 'Double damage and fire rate for 10 seconds',
     damageMultiplier: 2, fireRateMultiplier: 2
   },
@@ -109,14 +109,14 @@ export const AbilityTypes = {
 };
 
 export const Achievements = {
-  FIRST_BLOOD: { name: 'First Blood', icon: '🩸', description: 'Kill your first turkey', check: (s) => s.totalKills >= 1 },
-  TURKEY_HUNTER: { name: 'Turkey Hunter', icon: '🎯', description: 'Kill 100 turkeys', check: (s) => s.totalKills >= 100 },
-  TURKEY_SLAYER: { name: 'Turkey Slayer', icon: '⚔️', description: 'Kill 500 turkeys', check: (s) => s.totalKills >= 500 },
+  FIRST_BLOOD: { name: 'First Blood', icon: '🩸', description: 'Kill your first zombie', check: (s) => s.totalKills >= 1 },
+  ZOMBIE_HUNTER: { name: 'Zombie Hunter', icon: '🎯', description: 'Kill 100 zombies', check: (s) => s.totalKills >= 100 },
+  ZOMBIE_SLAYER: { name: 'Zombie Slayer', icon: '⚔️', description: 'Kill 500 zombies', check: (s) => s.totalKills >= 500 },
   WAVE_5: { name: 'Getting Started', icon: '🌊', description: 'Reach wave 5', check: (s) => s.highestWave >= 5 },
   WAVE_10: { name: 'Veteran Defender', icon: '🛡️', description: 'Reach wave 10', check: (s) => s.highestWave >= 10 },
   WAVE_20: { name: 'Master Defender', icon: '👑', description: 'Reach wave 20', check: (s) => s.highestWave >= 20 },
-  BOSS_KILLER: { name: 'Boss Slayer', icon: '💀', description: 'Kill a boss turkey', check: (s) => s.bossKills >= 1 },
-  BOSS_MASTER: { name: 'Boss Master', icon: '🏆', description: 'Kill 5 boss turkeys', check: (s) => s.bossKills >= 5 },
+  BOSS_KILLER: { name: 'Boss Slayer', icon: '💀', description: 'Kill a boss zombie', check: (s) => s.bossKills >= 1 },
+  BOSS_MASTER: { name: 'Boss Master', icon: '🏆', description: 'Kill 5 boss zombies', check: (s) => s.bossKills >= 5 },
   RICH_FARMER: { name: 'Rich Farmer', icon: '💰', description: 'Have 500 corn at once', check: (s) => s.maxCurrency >= 500 },
   TURRET_MASTER: { name: 'Turret Master', icon: '🗼', description: 'Place 10 turrets', check: (s) => s.turretsPlaced >= 10 },
   ABILITY_USER: { name: 'Ability User', icon: '✨', description: 'Use 20 abilities', check: (s) => s.abilitiesUsed >= 20 },
@@ -128,7 +128,7 @@ export const Achievements = {
 
 export default {
   WeaponTypes,
-  TurkeyTypes,
+  ZombieTypes,
   HouseUpgrades,
   TurretTypes,
   AbilityTypes,

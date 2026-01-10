@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   WeaponTypes,
-  TurkeyTypes,
+  ZombieTypes,
   HouseUpgrades,
   TurretTypes,
   AbilityTypes,
@@ -19,7 +19,7 @@ describe('GameConfig', () => {
   // WEAPON TYPES
   // ============================================
   describe('WeaponTypes', () => {
-    const weaponKeys = ['PITCHFORK', 'CORN_CANNON', 'EGG_BLASTER', 'PUMPKIN_MORTAR'];
+    const weaponKeys = ['PITCHFORK', 'CORN_CANNON', 'EGG_BLASTER', 'HAY_BALE_CATAPULT'];
 
     it('should have exactly 4 weapon types', () => {
       expect(Object.keys(WeaponTypes)).toHaveLength(4);
@@ -101,13 +101,13 @@ describe('GameConfig', () => {
       expect(WeaponTypes.EGG_BLASTER.slow).toBeGreaterThan(0);
     });
 
-    it('PUMPKIN_MORTAR should have arc property', () => {
-      expect(WeaponTypes.PUMPKIN_MORTAR.arc).toBe(true);
+    it('HAY_BALE_CATAPULT should have arc property', () => {
+      expect(WeaponTypes.HAY_BALE_CATAPULT.arc).toBe(true);
     });
 
-    it('PUMPKIN_MORTAR should have highest damage', () => {
+    it('HAY_BALE_CATAPULT should have highest damage', () => {
       const maxDamage = Math.max(...weaponKeys.map((k) => WeaponTypes[k].damage));
-      expect(WeaponTypes.PUMPKIN_MORTAR.damage).toBe(maxDamage);
+      expect(WeaponTypes.HAY_BALE_CATAPULT.damage).toBe(maxDamage);
     });
 
     it('EGG_BLASTER should have highest fire rate', () => {
@@ -119,21 +119,21 @@ describe('GameConfig', () => {
   // ============================================
   // TURKEY TYPES
   // ============================================
-  describe('TurkeyTypes', () => {
+  describe('ZombieTypes', () => {
     const turkeyKeys = ['STANDARD', 'RUNNER', 'TANK', 'HEALER', 'SPLITTER', 'BOSS'];
 
     it('should have exactly 6 turkey types', () => {
-      expect(Object.keys(TurkeyTypes)).toHaveLength(6);
+      expect(Object.keys(ZombieTypes)).toHaveLength(6);
     });
 
     it('should have all expected turkey types', () => {
       turkeyKeys.forEach((key) => {
-        expect(TurkeyTypes).toHaveProperty(key);
+        expect(ZombieTypes).toHaveProperty(key);
       });
     });
 
     describe.each(turkeyKeys)('%s', (turkeyKey) => {
-      const turkey = TurkeyTypes[turkeyKey];
+      const turkey = ZombieTypes[turkeyKey];
 
       it('should have a name', () => {
         expect(turkey.name).toBeDefined();
@@ -172,44 +172,44 @@ describe('GameConfig', () => {
     });
 
     it('RUNNER should be faster than STANDARD', () => {
-      expect(TurkeyTypes.RUNNER.speed).toBeGreaterThan(TurkeyTypes.STANDARD.speed);
+      expect(ZombieTypes.RUNNER.speed).toBeGreaterThan(ZombieTypes.STANDARD.speed);
     });
 
     it('TANK should have more HP than STANDARD', () => {
-      expect(TurkeyTypes.TANK.hp).toBeGreaterThan(TurkeyTypes.STANDARD.hp);
+      expect(ZombieTypes.TANK.hp).toBeGreaterThan(ZombieTypes.STANDARD.hp);
     });
 
     it('TANK should be slower than STANDARD', () => {
-      expect(TurkeyTypes.TANK.speed).toBeLessThan(TurkeyTypes.STANDARD.speed);
+      expect(ZombieTypes.TANK.speed).toBeLessThan(ZombieTypes.STANDARD.speed);
     });
 
     it('HEALER should have heals property', () => {
-      expect(TurkeyTypes.HEALER.heals).toBe(true);
+      expect(ZombieTypes.HEALER.heals).toBe(true);
     });
 
     it('SPLITTER should have splits property', () => {
-      expect(TurkeyTypes.SPLITTER.splits).toBe(true);
+      expect(ZombieTypes.SPLITTER.splits).toBe(true);
     });
 
     it('BOSS should have phases property', () => {
-      expect(TurkeyTypes.BOSS.phases).toBeDefined();
-      expect(TurkeyTypes.BOSS.phases).toBeGreaterThan(1);
+      expect(ZombieTypes.BOSS.phases).toBeDefined();
+      expect(ZombieTypes.BOSS.phases).toBeGreaterThan(1);
     });
 
     it('BOSS should have highest HP', () => {
-      const maxHp = Math.max(...turkeyKeys.map((k) => TurkeyTypes[k].hp));
-      expect(TurkeyTypes.BOSS.hp).toBe(maxHp);
+      const maxHp = Math.max(...turkeyKeys.map((k) => ZombieTypes[k].hp));
+      expect(ZombieTypes.BOSS.hp).toBe(maxHp);
     });
 
     it('BOSS should have highest value', () => {
-      const maxValue = Math.max(...turkeyKeys.map((k) => TurkeyTypes[k].value));
-      expect(TurkeyTypes.BOSS.value).toBe(maxValue);
+      const maxValue = Math.max(...turkeyKeys.map((k) => ZombieTypes[k].value));
+      expect(ZombieTypes.BOSS.value).toBe(maxValue);
     });
 
     it('value should generally correlate with difficulty (HP)', () => {
       // Higher HP turkeys should be worth more
-      expect(TurkeyTypes.TANK.value).toBeGreaterThan(TurkeyTypes.STANDARD.value);
-      expect(TurkeyTypes.BOSS.value).toBeGreaterThan(TurkeyTypes.TANK.value);
+      expect(ZombieTypes.TANK.value).toBeGreaterThan(ZombieTypes.STANDARD.value);
+      expect(ZombieTypes.BOSS.value).toBeGreaterThan(ZombieTypes.TANK.value);
     });
   });
 

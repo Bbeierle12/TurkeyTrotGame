@@ -1,5 +1,5 @@
 /**
- * TurkeyTrotDefense React Component Tests
+ * HomesteadSiege React Component Tests
  *
  * Tests the main game UI component including:
  * - Start screen rendering
@@ -65,7 +65,8 @@ const createMockEngine = () => ({
   cancelTurretPlacement: vi.fn(),
   setCameraMode: vi.fn(),
   takeScreenshot: vi.fn(),
-  getUpgrades: vi.fn(() => ({ weaponDamage: 0, fireRate: 0, playerHealth: 0, houseArmor: 0, houseLevel: 0 }))
+  getUpgrades: vi.fn(() => ({ weaponDamage: 0, fireRate: 0, playerHealth: 0, houseArmor: 0, houseLevel: 0 })),
+  updateSettings: vi.fn()
 });
 
 let mockEngine;
@@ -79,9 +80,9 @@ vi.mock('../engine/GameEngine.js', () => ({
     PITCHFORK: { name: 'Pitchfork', icon: '🔱', damage: 28, description: 'Three-pronged melee weapon' },
     CORN_CANNON: { name: 'Corn Cannon', icon: '🌽', damage: 45, description: 'Explosive corn cobs' },
     EGG_BLASTER: { name: 'Egg Blaster', icon: '🥚', damage: 12, description: 'Rapid fire eggs' },
-    PUMPKIN_MORTAR: { name: 'Pumpkin Mortar', icon: '🎃', damage: 90, description: 'Heavy splash damage' }
+    HAY_BALE_CATAPULT: { name: 'Hay Bale Catapult', icon: '🌾', damage: 90, description: 'Heavy splash damage' }
   },
-  TurkeyTypes: {
+  ZombieTypes: {
     STANDARD: { hp: 35, speed: 1, damage: 8, value: 10 }
   },
   HouseUpgrades: {
@@ -93,25 +94,25 @@ vi.mock('../engine/GameEngine.js', () => ({
     EXPLOSIVE: { name: 'Explosive Turret', icon: '💥', damage: 40, range: 10, fireRate: 0.5, cost: 250, description: 'Area damage' }
   },
   AbilityTypes: {
-    AIRSTRIKE: { name: 'Turkey Bomb', cost: 75 },
+    AIRSTRIKE: { name: 'Artillery Strike', cost: 75 },
     FREEZE: { name: 'Frost Nova', cost: 50 },
-    RAGE: { name: 'Harvest Rage', cost: 60 },
+    RAGE: { name: 'Survival Fury', cost: 60 },
     REPAIR: { name: 'Emergency Repair', cost: 40 }
   }
 }));
 
 vi.mock('../engine/GameConfig.js', () => ({
   Achievements: {
-    FIRST_BLOOD: { name: 'First Blood', description: 'Kill your first turkey', icon: '🩸' },
+    FIRST_BLOOD: { name: 'First Blood', description: 'Kill your first zombie', icon: '🩸' },
     WAVE_5: { name: 'Wave 5 Survivor', description: 'Reach wave 5', icon: '⭐' },
-    BOSS_SLAYER: { name: 'Boss Slayer', description: 'Defeat a boss turkey', icon: '👑' }
+    BOSS_SLAYER: { name: 'Boss Slayer', description: 'Defeat a boss zombie', icon: '👑' }
   }
 }));
 
 // Import after mocks
-import TurkeyTrotDefense from '../TurkeyTrotDefense.jsx';
+import HomesteadSiege from '../HomesteadSiege.jsx';
 
-describe('TurkeyTrotDefense Component', () => {
+describe('HomesteadSiege Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorageMock.clear();
@@ -125,32 +126,32 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Start Screen', () => {
     it('should render the start screen with title', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
-      expect(screen.getByText('Turkey Trot Defense')).toBeInTheDocument();
+      expect(screen.getByText('Homestead Siege')).toBeInTheDocument();
     });
 
     it('should render Normal Mode and Endless Mode buttons', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       expect(screen.getByText('Normal Mode')).toBeInTheDocument();
       expect(screen.getByText('Endless Mode')).toBeInTheDocument();
     });
 
     it('should display game description', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       expect(screen.getByText(/Defend your barn/)).toBeInTheDocument();
     });
 
     it('should display control instructions', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       expect(screen.getByText(/WASD: Move/)).toBeInTheDocument();
     });
 
     it('should display player stats from save data', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       expect(screen.getByText('High Score')).toBeInTheDocument();
       expect(screen.getByText('Best Wave')).toBeInTheDocument();
@@ -159,13 +160,13 @@ describe('TurkeyTrotDefense Component', () => {
     });
 
     it('should display achievements button', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       expect(screen.getByText(/Achievements/)).toBeInTheDocument();
     });
 
     it('should start normal game when Normal Mode clicked', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       fireEvent.click(screen.getByText('Normal Mode'));
 
@@ -173,7 +174,7 @@ describe('TurkeyTrotDefense Component', () => {
     });
 
     it('should start endless game when Endless Mode clicked', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       fireEvent.click(screen.getByText('Endless Mode'));
 
@@ -183,12 +184,12 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Game HUD', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
     });
 
     it('should hide start screen after game starts', () => {
-      expect(screen.queryByText('Turkey Trot Defense')).not.toBeInTheDocument();
+      expect(screen.queryByText('Homestead Siege')).not.toBeInTheDocument();
     });
 
     it('should display weapon bar with all weapons', () => {
@@ -196,7 +197,7 @@ describe('TurkeyTrotDefense Component', () => {
       expect(screen.getAllByText('🔱').length).toBeGreaterThan(0);
       expect(screen.getAllByText('🌽').length).toBeGreaterThan(0);
       expect(screen.getAllByText('🥚').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('🎃').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('🌾').length).toBeGreaterThan(0);
     });
 
     it('should display shop button', () => {
@@ -222,7 +223,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Shop Modal', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
       fireEvent.click(screen.getByText('🛒'));
     });
@@ -248,7 +249,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Turret Menu Modal', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
       // Click the turret button (🗼) - but there are two, one in weapon bar
       const turretButtons = screen.getAllByText('🗼');
@@ -273,7 +274,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Settings Modal', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
       fireEvent.click(screen.getByText('⚙️'));
     });
@@ -299,7 +300,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Help Modal', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
       fireEvent.click(screen.getByText('❓'));
     });
@@ -324,7 +325,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Achievements Modal', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       // Click the achievements button on start screen
       const achievementButtons = screen.getAllByText(/Achievements/);
       fireEvent.click(achievementButtons[0]);
@@ -342,13 +343,13 @@ describe('TurkeyTrotDefense Component', () => {
     });
 
     it('should display achievement descriptions', () => {
-      expect(screen.getByText('Kill your first turkey')).toBeInTheDocument();
+      expect(screen.getByText('Kill your first zombie')).toBeInTheDocument();
     });
   });
 
   describe('Weapon Selection', () => {
     it('should allow weapon button clicks without error', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       // Get all corn buttons and click the first one (weapon bar)
@@ -359,18 +360,18 @@ describe('TurkeyTrotDefense Component', () => {
     });
 
     it('should display weapon buttons for all weapons', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       // Verify weapon buttons exist
       expect(screen.getAllByText('🔱').length).toBeGreaterThan(0);
       expect(screen.getAllByText('🌽').length).toBeGreaterThan(0);
       expect(screen.getAllByText('🥚').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('🎃').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('🌾').length).toBeGreaterThan(0);
     });
 
     it('should display current weapon info', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       // There may be multiple "Pitchfork" texts, verify at least one
@@ -380,7 +381,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Game State Callbacks', () => {
     beforeEach(() => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
     });
 
@@ -395,7 +396,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Banner Display', () => {
     it('should display banner when set', async () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       // Trigger banner callback
@@ -411,7 +412,7 @@ describe('TurkeyTrotDefense Component', () => {
 
   describe('Keyboard Navigation', () => {
     it('should toggle pause on Escape', () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       fireEvent.keyDown(window, { code: 'Escape' });
@@ -420,7 +421,7 @@ describe('TurkeyTrotDefense Component', () => {
     });
 
     it('should open shop on B key', async () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       fireEvent.keyDown(window, { code: 'KeyB' });
@@ -431,7 +432,7 @@ describe('TurkeyTrotDefense Component', () => {
     });
 
     it('should open turret menu on T key', async () => {
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
       fireEvent.click(screen.getByText('Normal Mode'));
 
       fireEvent.keyDown(window, { code: 'KeyT' });
@@ -458,7 +459,7 @@ describe('TurkeyTrotDefense Component', () => {
 
       localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(savedData));
 
-      render(<TurkeyTrotDefense />);
+      render(<HomesteadSiege />);
 
       expect(screen.getByText('5000')).toBeInTheDocument(); // High score
       expect(screen.getByText('100')).toBeInTheDocument(); // Total kills
@@ -468,7 +469,7 @@ describe('TurkeyTrotDefense Component', () => {
 
 describe('AudioManager', () => {
   it('should be initialized on user interaction', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
 
     // First click initializes audio
     fireEvent.click(screen.getByText('Normal Mode'));
@@ -480,7 +481,7 @@ describe('AudioManager', () => {
 
 describe('Game Over Screen', () => {
   it('should show game over screen when game ends', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     // Trigger game over
@@ -494,7 +495,7 @@ describe('Game Over Screen', () => {
   });
 
   it('should display final score on game over', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     // Update stats first
@@ -521,7 +522,7 @@ describe('Game Over Screen', () => {
   });
 
   it('should show play again button on game over', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     if (mockEngineCallbacks.onGameOver) {
@@ -534,7 +535,7 @@ describe('Game Over Screen', () => {
   });
 
   it('should show main menu button on game over', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     if (mockEngineCallbacks.onGameOver) {
@@ -549,7 +550,7 @@ describe('Game Over Screen', () => {
 
 describe('Pause Screen', () => {
   it('should display pause screen when paused', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     if (mockEngineCallbacks.onPauseChange) {
@@ -562,7 +563,7 @@ describe('Pause Screen', () => {
   });
 
   it('should show resume button when paused', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     if (mockEngineCallbacks.onPauseChange) {
@@ -575,7 +576,7 @@ describe('Pause Screen', () => {
   });
 
   it('should call togglePause when resume clicked', async () => {
-    render(<TurkeyTrotDefense />);
+    render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
     if (mockEngineCallbacks.onPauseChange) {

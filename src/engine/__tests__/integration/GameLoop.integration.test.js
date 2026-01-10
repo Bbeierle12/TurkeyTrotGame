@@ -3,14 +3,14 @@
  *
  * Tests the core game loop interactions including:
  * - Wave spawning and progression
- * - Combat systems (turkeys vs player, player vs turkeys)
+ * - Combat systems (zombies vs player, player vs zombies)
  * - Economy and upgrade systems
  * - State management across game cycles
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { GameEngine, StateSnapshot, WeaponTypes, TurkeyTypes, AbilityTypes, TurretTypes } from '../../GameEngine.js';
-import { createMockGameState, createMockTurkey, createPosition, resetIdCounter } from '../../../test-utils/factories.js';
+import { GameEngine, StateSnapshot, WeaponTypes, ZombieTypes, AbilityTypes, TurretTypes } from '../../GameEngine.js';
+import { createMockGameState, createMockZombie, createPosition, resetIdCounter } from '../../../test-utils/factories.js';
 
 describe('GameLoop Integration', () => {
   let engine;
@@ -20,7 +20,7 @@ describe('GameLoop Integration', () => {
     engine = new GameEngine();
     // Mock Three.js scene components
     engine.scene = { add: vi.fn(), remove: vi.fn() };
-    engine.turkeyGroup = { add: vi.fn(), remove: vi.fn(), children: [] };
+    engine.zombieGroup = { add: vi.fn(), remove: vi.fn(), children: [] };
     engine.projectileGroup = { add: vi.fn(), remove: vi.fn(), children: [] };
     engine.turretGroup = { add: vi.fn(), remove: vi.fn(), children: [] };
     engine.playerGroup = { position: { x: 0, y: 0, z: 10, set: vi.fn(), copy: vi.fn() } };
@@ -99,21 +99,21 @@ describe('GameLoop Integration', () => {
       engine.state.paused = false;
     });
 
-    it('should track turkey deaths and award currency', () => {
+    it('should track zombie deaths and award currency', () => {
       const initialCurrency = engine.state.currency;
-      const turkey = createMockTurkey({ type: 'STANDARD', hp: 0, value: 10 });
-      turkey.mesh = { parent: engine.turkeyGroup };
+      const zombie = createMockZombie({ type: 'STANDARD', hp: 0, value: 10 });
+      zombie.mesh = { parent: engine.zombieGroup };
 
-      engine.state.turkeys = [turkey];
+      engine.state.zombies = [zombie];
 
-      // Simulate turkey death by setting HP to 0
+      // Simulate zombie death by setting HP to 0
       // The game loop would normally handle this
-      expect(turkey.hp).toBe(0);
-      expect(turkey.value).toBe(10);
+      expect(zombie.hp).toBe(0);
+      expect(zombie.value).toBe(10);
     });
 
     it('should handle multiple weapon types', () => {
-      const weapons = ['PITCHFORK', 'CORN_CANNON', 'EGG_BLASTER', 'PUMPKIN_MORTAR'];
+      const weapons = ['PITCHFORK', 'CORN_CANNON', 'EGG_BLASTER', 'HAY_BALE_CATAPULT'];
 
       weapons.forEach(weapon => {
         engine.setWeapon(weapon);
@@ -127,10 +127,10 @@ describe('GameLoop Integration', () => {
 
     it('should apply splash damage for appropriate weapons', () => {
       const cornCannon = WeaponTypes.CORN_CANNON;
-      const pumpkinMortar = WeaponTypes.PUMPKIN_MORTAR;
+      const hayBaleCatapult = WeaponTypes.HAY_BALE_CATAPULT;
 
       expect(cornCannon.splash).toBeGreaterThan(0);
-      expect(pumpkinMortar.splash).toBeGreaterThan(0);
+      expect(hayBaleCatapult.splash).toBeGreaterThan(0);
     });
 
     it('should apply pierce for pitchfork weapon', () => {
@@ -201,14 +201,14 @@ describe('GameLoop Integration', () => {
       engine.state.wave = 5;
       engine.state.currency = 1000;
       engine.state.score = 5000;
-      engine.state.turkeys = [createMockTurkey(), createMockTurkey()];
+      engine.state.zombies = [createMockZombie(), createMockZombie()];
 
       const snapshot = new StateSnapshot(engine.state);
 
       expect(snapshot.wave).toBe(5);
       expect(snapshot.currency).toBe(1000);
       expect(snapshot.score).toBe(5000);
-      expect(snapshot.turkeyCount).toBe(2);
+      expect(snapshot.zombieCount).toBe(2);
     });
 
     it('should track player position in snapshot', () => {
@@ -333,14 +333,14 @@ describe('GameLoop Integration', () => {
     it('should track wave completion state', () => {
       engine.state.started = true;
       engine.state.wave = 1;
-      engine.state.turkeys = [];
+      engine.state.zombies = [];
       engine.state.toSpawn = 0;
       engine.state.totalSpawnedThisWave = 5;
       engine.state.expectedThisWave = 5;
 
       // Wave complete conditions
       const waveComplete =
-        engine.state.turkeys.length === 0 &&
+        engine.state.zombies.length === 0 &&
         engine.state.toSpawn === 0 &&
         engine.state.totalSpawnedThisWave >= engine.state.expectedThisWave;
 

@@ -90,13 +90,13 @@ export function createPieceGrid(count, spacing = 3, startPos = { x: 5, z: 5 }) {
 }
 
 // ============================================
-// TURKEY FACTORIES
+// ZOMBIE FACTORIES
 // ============================================
 
 /**
- * Create a mock turkey entity
+ * Create a mock zombie entity
  */
-export function createMockTurkey(overrides = {}) {
+export function createMockZombie(overrides = {}) {
   const typeDefaults = {
     STANDARD: { hp: 35, speed: 1.0, damage: 8, value: 10 },
     RUNNER: { hp: 22, speed: 1.8, damage: 6, value: 12 },
@@ -110,7 +110,7 @@ export function createMockTurkey(overrides = {}) {
   const defaults = typeDefaults[type] ?? typeDefaults.STANDARD;
 
   return {
-    id: overrides.id ?? generateId('turkey'),
+    id: overrides.id ?? generateId('zombie'),
     type,
     pos: overrides.pos ?? overrides.position ?? createPosition(30, 0, 30),
     hp: overrides.hp ?? defaults.hp,
@@ -126,15 +126,15 @@ export function createMockTurkey(overrides = {}) {
 }
 
 /**
- * Create a wave of turkeys
+ * Create a wave of zombies
  */
-export function createTurkeyWave(composition = { STANDARD: 5, RUNNER: 2 }) {
-  const turkeys = [];
+export function createZombieWave(composition = { STANDARD: 5, RUNNER: 2 }) {
+  const zombies = [];
 
   for (const [type, count] of Object.entries(composition)) {
     for (let i = 0; i < count; i++) {
-      turkeys.push(
-        createMockTurkey({
+      zombies.push(
+        createMockZombie({
           type,
           pos: createRandomPosition({ min: 35, max: 50 })
         })
@@ -142,7 +142,7 @@ export function createTurkeyWave(composition = { STANDARD: 5, RUNNER: 2 }) {
     }
   }
 
-  return turkeys;
+  return zombies;
 }
 
 // ============================================
@@ -157,7 +157,7 @@ export function createMockProjectile(overrides = {}) {
     PITCHFORK: { damage: 28, speed: 32, pierce: 2, splash: 0 },
     CORN_CANNON: { damage: 45, speed: 26, pierce: 0, splash: 3.2 },
     EGG_BLASTER: { damage: 12, speed: 38, pierce: 0, splash: 0 },
-    PUMPKIN_MORTAR: { damage: 90, speed: 14, pierce: 0, splash: 5.5 }
+    HAY_BALE_CATAPULT: { damage: 90, speed: 14, pierce: 0, splash: 5.5 }
   };
 
   const weapon = overrides.weapon ?? 'PITCHFORK';
@@ -328,7 +328,7 @@ export function createMockGameState(overrides = {}) {
       ...overrides.house
     },
 
-    turkeys: overrides.turkeys ?? [],
+    zombies: overrides.zombies ?? [],
     projectiles: overrides.projectiles ?? [],
     turretProjectiles: overrides.turretProjectiles ?? [],
     turrets: overrides.turrets ?? [],
@@ -526,8 +526,8 @@ export default {
   createRandomPosition,
   createMockPiece,
   createPieceGrid,
-  createMockTurkey,
-  createTurkeyWave,
+  createMockZombie,
+  createZombieWave,
   createMockProjectile,
   createMockTurret,
   createMockMesh,

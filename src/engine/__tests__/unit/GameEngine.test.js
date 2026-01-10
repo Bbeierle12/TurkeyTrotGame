@@ -15,11 +15,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { GameEngine, StateSnapshot, WeaponTypes, TurkeyTypes, HouseUpgrades, TurretTypes, AbilityTypes } from '../../GameEngine.js';
+import { GameEngine, StateSnapshot, WeaponTypes, ZombieTypes, HouseUpgrades, TurretTypes, AbilityTypes } from '../../GameEngine.js';
 import { Vector3 } from '../__mocks__/three.js';
 import {
   createMockGameState,
-  createMockTurkey,
+  createMockZombie,
   createMockTurret,
   createMockMesh,
   createPosition,
@@ -128,7 +128,7 @@ describe('GameEngine', () => {
     });
 
     it('should capture turkey count', () => {
-      const turkeys = [createMockTurkey(), createMockTurkey()];
+      const turkeys = [createMockZombie(), createMockZombie()];
       const state = createMockGameState({ turkeys });
       const snapshot = new StateSnapshot(state);
 
@@ -1233,7 +1233,7 @@ describe('GameEngine', () => {
     });
 
     it('should clear turkeys array', () => {
-      engine.state.turkeys = [createMockTurkey(), createMockTurkey()];
+      engine.state.turkeys = [createMockZombie(), createMockZombie()];
       engine.reset();
       expect(engine.state.turkeys).toEqual([]);
     });
@@ -1280,9 +1280,9 @@ describe('GameEngine', () => {
       expect(WeaponTypes.PITCHFORK).toBeDefined();
     });
 
-    it('should re-export TurkeyTypes', () => {
-      expect(TurkeyTypes).toBeDefined();
-      expect(TurkeyTypes.STANDARD).toBeDefined();
+    it('should re-export ZombieTypes', () => {
+      expect(ZombieTypes).toBeDefined();
+      expect(ZombieTypes.STANDARD).toBeDefined();
     });
 
     it('should re-export HouseUpgrades', () => {

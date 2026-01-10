@@ -12,14 +12,14 @@ import { DamageManager, DamageVisualizer, DamageType } from './DamageManager.js'
 import { StabilityOptimizer } from './StabilityOptimizer.js';
 import {
   WeaponTypes,
-  TurkeyTypes,
+  ZombieTypes,
   HouseUpgrades,
   TurretTypes,
   AbilityTypes
 } from './GameConfig.js';
 
 // Re-export config for convenience
-export { WeaponTypes, TurkeyTypes, HouseUpgrades, TurretTypes, AbilityTypes };
+export { WeaponTypes, ZombieTypes, HouseUpgrades, TurretTypes, AbilityTypes };
 
 /**
  * Game state snapshot for serialization
@@ -34,7 +34,7 @@ export class StateSnapshot {
     this.barnMaxHealth = state.barn?.maxHealth ?? 175;
     this.playerPos = state.player?.pos?.clone() ?? new THREE.Vector3();
     this.turretCount = state.turrets?.length ?? 0;
-    this.turkeyCount = state.turkeys?.length ?? 0;
+    this.zombieCount = state.zombies?.length ?? 0;
     this.projectileCount = state.projectiles?.length ?? 0;
   }
 }
@@ -47,7 +47,7 @@ export class GameEngine {
     // Configuration
     this.config = {
       spatialCellSize: 5,
-      maxTurkeys: 500,
+      maxZombies: 500,
       maxProjectiles: 200,
       collisionRadius: 2.0,
       turretMinDistance: 5,
@@ -75,9 +75,9 @@ export class GameEngine {
     this.particleGeo = null;
     this.particleSystem = null;
 
-    // Leaves system
-    this.leafCount = 50;
-    this.leafData = [];
+    // Snow system
+    this.leafCount = 50;  // snowflake count
+    this.leafData = [];   // snowflake animation data
     this.leafGeo = null;
 
     // Camera settings
@@ -138,7 +138,7 @@ export class GameEngine {
         windows: []
       },
 
-      turkeys: [],
+      zombies: [],
       projectiles: [],
       turretProjectiles: [],
       turrets: [],
@@ -186,7 +186,7 @@ export class GameEngine {
     this.spawnedCounts = {};
 
     // Spatial indexing
-    this.turkeyGrid = new SpatialHashGrid2D(this.config.spatialCellSize);
+    this.zombieGrid = new SpatialHashGrid2D(this.config.spatialCellSize);
     this.turretGrid = new SpatialHashGrid2D(this.config.spatialCellSize);
 
     // Building systems
@@ -253,7 +253,7 @@ export class GameEngine {
     this._initLighting();
     this._initGround();
     this._initParticleSystem();
-    this._initLeaves();
+    this._initSnow();
     this._initPlayer();
     this._initHouse();
     this._initTurretPreview();
@@ -272,8 +272,8 @@ export class GameEngine {
 
   _initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb);
-    this.scene.fog = new THREE.Fog(0x87ceeb, 40, 110);
+    this.scene.background = new THREE.Color(0xb8c8d8);  // Cold winter gray-blue
+    this.scene.fog = new THREE.Fog(0xb8c8d8, 40, 110);
 
     this.camera = new THREE.PerspectiveCamera(
       50,
@@ -295,9 +295,10 @@ export class GameEngine {
   }
 
   _initLighting() {
-    this.scene.add(new THREE.AmbientLight(0xffeedd, 0.45));
+    // Winter lighting - cooler tones
+    this.scene.add(new THREE.AmbientLight(0xd0e0f0, 0.5));
 
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
     sun.position.set(25, 45, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -308,11 +309,11 @@ export class GameEngine {
     sun.shadow.bias = -0.0001;
     this.scene.add(sun);
 
-    const fillLight = new THREE.DirectionalLight(0xff9966, 0.25);
+    const fillLight = new THREE.DirectionalLight(0x8899aa, 0.25);  // Cool blue fill
     fillLight.position.set(-25, 15, 0);
     this.scene.add(fillLight);
 
-    this.scene.add(new THREE.HemisphereLight(0x87ceeb, 0x5a4a3a, 0.35));
+    this.scene.add(new THREE.HemisphereLight(0xb8c8d8, 0x4a4a4a, 0.35));  // Winter sky/ground
   }
 
   _initGround() {
@@ -324,7 +325,7 @@ export class GameEngine {
     groundGeo.computeVertexNormals();
     const ground = new THREE.Mesh(
       groundGeo,
-      new THREE.MeshStandardMaterial({ color: 0x4a7c23, roughness: 0.92 })
+      new THREE.MeshStandardMaterial({ color: 0x8a9a7a, roughness: 0.95 })  // Winter faded grass
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -374,41 +375,41 @@ export class GameEngine {
     this.scene.add(this.particleSystem);
   }
 
-  _initLeaves() {
+  _initSnow() {
     this.leafGeo = new THREE.BufferGeometry();
-    const leafPositions = new Float32Array(this.leafCount * 3);
-    const leafColors = new Float32Array(this.leafCount * 3);
-    const leafColorOptions = [0xcc6633, 0xdd8844, 0xbb5522, 0xee9955];
+    const snowPositions = new Float32Array(this.leafCount * 3);
+    const snowColors = new Float32Array(this.leafCount * 3);
+    const snowflakeColors = [0xffffff, 0xf0f4f8, 0xe8f0f8, 0xf8fcff];  // White/light blue
 
     for (let i = 0; i < this.leafCount; i++) {
-      leafPositions[i * 3] = (Math.random() - 0.5) * 80;
-      leafPositions[i * 3 + 1] = Math.random() * 25 + 5;
-      leafPositions[i * 3 + 2] = (Math.random() - 0.5) * 80;
+      snowPositions[i * 3] = (Math.random() - 0.5) * 80;
+      snowPositions[i * 3 + 1] = Math.random() * 25 + 5;
+      snowPositions[i * 3 + 2] = (Math.random() - 0.5) * 80;
 
-      const col = new THREE.Color(leafColorOptions[Math.floor(Math.random() * leafColorOptions.length)]);
-      leafColors[i * 3] = col.r;
-      leafColors[i * 3 + 1] = col.g;
-      leafColors[i * 3 + 2] = col.b;
+      const col = new THREE.Color(snowflakeColors[Math.floor(Math.random() * snowflakeColors.length)]);
+      snowColors[i * 3] = col.r;
+      snowColors[i * 3 + 1] = col.g;
+      snowColors[i * 3 + 2] = col.b;
 
       this.leafData.push({
-        fallSpeed: 0.5 + Math.random() * 0.8,
-        swaySpeed: 1 + Math.random() * 2,
-        swayAmt: 0.5 + Math.random() * 1.5,
+        fallSpeed: 0.3 + Math.random() * 0.4,  // Slower fall for snow
+        swaySpeed: 0.5 + Math.random() * 1,    // Gentler sway
+        swayAmt: 0.3 + Math.random() * 0.8,    // Less horizontal drift
         rot: Math.random() * Math.PI * 2
       });
     }
 
-    this.leafGeo.setAttribute('position', new THREE.BufferAttribute(leafPositions, 3));
-    this.leafGeo.setAttribute('color', new THREE.BufferAttribute(leafColors, 3));
+    this.leafGeo.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+    this.leafGeo.setAttribute('color', new THREE.BufferAttribute(snowColors, 3));
 
-    const leafMat = new THREE.PointsMaterial({
-      size: 0.4,
+    const snowMat = new THREE.PointsMaterial({
+      size: 0.25,  // Smaller for snowflakes
       vertexColors: true,
       transparent: true,
-      opacity: 0.85
+      opacity: 0.9
     });
 
-    this.scene.add(new THREE.Points(this.leafGeo, leafMat));
+    this.scene.add(new THREE.Points(this.leafGeo, snowMat));
   }
 
   _initPlayer() {
@@ -788,10 +789,8 @@ export class GameEngine {
   _createTree(x, z) {
     const treeGroup = new THREE.Group();
 
-    const trunkHeight = 2 + Math.random() * 2;
-    const trunkRadius = 0.3 + Math.random() * 0.2;
-    const foliageRadius = 1.5 + Math.random() * 1;
-    const foliageHeight = 3 + Math.random() * 2;
+    const trunkHeight = 3 + Math.random() * 2;
+    const trunkRadius = 0.25 + Math.random() * 0.15;
 
     // Trunk
     const trunk = new THREE.Mesh(
@@ -803,42 +802,60 @@ export class GameEngine {
     trunk.receiveShadow = true;
     treeGroup.add(trunk);
 
-    // Foliage - autumn colors with pine/round variation
-    const foliageColors = [0xcc4422, 0xdd6633, 0xee8844, 0xbb5522, 0xaa3311, 0xff6600];
-    const foliageColor = foliageColors[Math.floor(Math.random() * foliageColors.length)];
+    // 30% chance for snow-covered pine tree, 70% bare deciduous tree
+    const isPine = Math.random() < 0.3;
 
-    const isPine = Math.random() > 0.5;
-    let foliageGeo;
     if (isPine) {
-      foliageGeo = new THREE.ConeGeometry(foliageRadius, foliageHeight, 8);
+      // Snow-covered pine tree
+      const foliageRadius = 1.5 + Math.random() * 0.5;
+      const foliageHeight = 3 + Math.random() * 1.5;
+
+      // Dark green pine foliage
+      const foliage = new THREE.Mesh(
+        new THREE.ConeGeometry(foliageRadius, foliageHeight, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2a4a2a, roughness: 0.9 })
+      );
+      foliage.position.y = trunkHeight + foliageHeight / 2;
+      foliage.castShadow = true;
+      treeGroup.add(foliage);
+
+      // Snow cap on top
+      const snowCap = new THREE.Mesh(
+        new THREE.ConeGeometry(foliageRadius * 0.85, foliageHeight * 0.5, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 })
+      );
+      snowCap.position.y = trunkHeight + foliageHeight * 0.85;
+      treeGroup.add(snowCap);
     } else {
-      foliageGeo = new THREE.SphereGeometry(foliageRadius, 8, 6);
-    }
+      // Bare winter tree with branches
+      const branchMat = new THREE.MeshStandardMaterial({ color: 0x3a2818, roughness: 0.95 });
+      const branchCount = 3 + Math.floor(Math.random() * 3);
 
-    const foliage = new THREE.Mesh(
-      foliageGeo,
-      new THREE.MeshStandardMaterial({ color: foliageColor, roughness: 0.9 })
-    );
-    foliage.position.y = trunkHeight + (isPine ? foliageHeight / 2 : foliageRadius * 0.8);
-    foliage.castShadow = true;
-    treeGroup.add(foliage);
+      for (let i = 0; i < branchCount; i++) {
+        const branchLength = 1 + Math.random() * 1.5;
+        const branch = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.05, 0.08, branchLength, 6),
+          branchMat
+        );
 
-    // Add extra foliage layers for fuller trees (non-pine only)
-    if (!isPine && Math.random() > 0.3) {
-      const extraFoliage = new THREE.Mesh(
-        new THREE.SphereGeometry(foliageRadius * 0.7, 6, 5),
-        new THREE.MeshStandardMaterial({
-          color: foliageColors[Math.floor(Math.random() * foliageColors.length)],
-          roughness: 0.9
-        })
-      );
-      extraFoliage.position.set(
-        (Math.random() - 0.5) * foliageRadius,
-        trunkHeight + foliageRadius * 0.4,
-        (Math.random() - 0.5) * foliageRadius
-      );
-      extraFoliage.castShadow = true;
-      treeGroup.add(extraFoliage);
+        const yPos = trunkHeight * (0.5 + Math.random() * 0.4);
+        branch.position.set(0, yPos, 0);
+        branch.rotation.z = (Math.random() > 0.5 ? 1 : -1) * (0.4 + Math.random() * 0.6);
+        branch.rotation.y = (i / branchCount) * Math.PI * 2 + Math.random() * 0.5;
+
+        treeGroup.add(branch);
+
+        // Add smaller sub-branches
+        if (Math.random() > 0.4) {
+          const subBranch = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.02, 0.04, branchLength * 0.5, 4),
+            branchMat
+          );
+          subBranch.position.set(branchLength * 0.35, 0, 0);
+          subBranch.rotation.z = (Math.random() - 0.5) * 0.8;
+          branch.add(subBranch);
+        }
+      }
     }
 
     // Position and add slight random rotation
@@ -1193,7 +1210,7 @@ export class GameEngine {
     if (!this.state.started) return;
 
     this._updatePlayer(dt, t);
-    this._updateTurkeys(dt, t);
+    this._updateZombies(dt, t);
     this._updateProjectiles(dt);
     this._updateTurrets(dt);
     this._updateSpawning(dt);
@@ -1207,7 +1224,7 @@ export class GameEngine {
     // 4. At least one enemy was spawned this wave (prevents instant completion)
     // 5. Not already marked complete
     const allSpawned = this.state.toSpawn === 0;
-    const allDead = this.state.turkeys.filter(tk => !tk.dead).length === 0;
+    const allDead = this.state.zombies.filter(tk => !tk.dead).length === 0;
     const enemiesWereSpawned = this.state.totalSpawnedThisWave > 0 && this.state.totalSpawnedThisWave >= this.state.expectedThisWave;
 
     if (this.state.wave > 0 && allSpawned && allDead && enemiesWereSpawned && !this.state.waveComplete) {
@@ -1466,16 +1483,16 @@ export class GameEngine {
     };
   }
 
-  _updateTurkeys(dt, t) {
+  _updateZombies(dt, t) {
     // Rebuild spatial grid
-    this.turkeyGrid.clear();
-    for (const tk of this.state.turkeys) {
+    this.zombieGrid.clear();
+    for (const tk of this.state.zombies) {
       if (!tk.dead) {
-        this.turkeyGrid.insert(tk, tk.pos);
+        this.zombieGrid.insert(tk, tk.pos);
       }
     }
 
-    for (const tk of this.state.turkeys) {
+    for (const tk of this.state.zombies) {
       if (tk.dead) continue;
 
       // Target selection
@@ -1504,18 +1521,18 @@ export class GameEngine {
         speed = 0;
       }
 
-      // Move turkey
+      // Move zombie
       tk.pos.addScaledVector(dir, speed * dt);
       tk.mesh.position.copy(tk.pos);
       tk.mesh.lookAt(targetPos);
       tk.mesh.position.y = Math.abs(Math.sin(t * 10)) * 0.5;
 
       // Attack logic
-      this._handleTurkeyAttack(tk, targetPos, targetIsHouse, dt);
+      this._handleZombieAttack(tk, targetPos, targetIsHouse, dt);
     }
   }
 
-  _handleTurkeyAttack(tk, targetPos, targetIsHouse, dt) {
+  _handleZombieAttack(tk, targetPos, targetIsHouse, dt) {
     if (tk.attackCooldown > 0) tk.attackCooldown -= dt;
 
     if (targetIsHouse) {
@@ -1524,19 +1541,19 @@ export class GameEngine {
 
       if (distToHouse < houseRadius && (!tk.attackCooldown || tk.attackCooldown <= 0)) {
         tk.attackCooldown = 1.0;
-        this._turkeyAttackHouse(tk);
+        this._zombieAttackHouse(tk);
       }
     } else {
       const distToPlayer = tk.pos.distanceTo(this.state.player.pos);
 
       if (distToPlayer < 1.5 && (!tk.attackCooldown || tk.attackCooldown <= 0)) {
         tk.attackCooldown = 1.2;
-        this._turkeyAttackPlayer(tk);
+        this._zombieAttackPlayer(tk);
       }
     }
   }
 
-  _turkeyAttackHouse(tk) {
+  _zombieAttackHouse(tk) {
     // Find nearest door or window
     let nearestEntry = null;
     let nearestDist = Infinity;
@@ -1589,7 +1606,7 @@ export class GameEngine {
     }
   }
 
-  _turkeyAttackPlayer(tk) {
+  _zombieAttackPlayer(tk) {
     if (this.state.player.invulnTimer > 0) return;
 
     const dmg = tk.dmg;
@@ -1630,7 +1647,7 @@ export class GameEngine {
       // Check collisions
       const hits = this._checkProjectileCollisions(p);
       for (const tk of hits) {
-        this._damageturkey(tk, p.dmg, p);
+        this._damageZombie(tk, p.dmg, p);
         p.hits.add(tk);
 
         this._emitCallback('onHitMarker', tk.hp <= 0 ? 'kill' : 'hit');
@@ -1665,7 +1682,7 @@ export class GameEngine {
 
       const hits = this._checkProjectileCollisions(p);
       for (const tk of hits) {
-        this._damageturkey(tk, p.dmg, p);
+        this._damageZombie(tk, p.dmg, p);
 
         if (p.splash > 0) {
           this._createExplosion(p.mesh.position.clone(), p.splash);
@@ -1683,7 +1700,7 @@ export class GameEngine {
   }
 
   _checkProjectileCollisions(projectile) {
-    const nearby = this.turkeyGrid.queryRadius(projectile.mesh.position, this.config.collisionRadius);
+    const nearby = this.zombieGrid.queryRadius(projectile.mesh.position, this.config.collisionRadius);
     const hits = [];
 
     for (const tk of nearby) {
@@ -1702,7 +1719,7 @@ export class GameEngine {
     return hits;
   }
 
-  _damageturkey(tk, damage, projectile) {
+  _damageZombie(tk, damage, projectile) {
     tk.hp -= damage;
 
     // Apply slow
@@ -1719,17 +1736,17 @@ export class GameEngine {
       tk.body.material.color.set(0xff0000);
       setTimeout(() => {
         if (tk.body && tk.body.material) {
-          tk.body.material.color.set(TurkeyTypes[tk.type].body);
+          tk.body.material.color.set(ZombieTypes[tk.type].body);
         }
       }, 80);
     }
 
     if (tk.hp <= 0) {
-      this._killTurkey(tk);
+      this._killZombie(tk);
     }
   }
 
-  _killTurkey(tk) {
+  _killZombie(tk) {
     tk.dead = true;
     tk.mesh.visible = false;
 
@@ -1737,17 +1754,17 @@ export class GameEngine {
     this.state.currency += Math.ceil(tk.val / 2);
 
     this.audioManager?.playSound('kill');
-    const bodyColor = tk.body?.material?.color?.getHex() || TurkeyTypes[tk.type]?.body || 0x8b4513;
+    const bodyColor = tk.body?.material?.color?.getHex() || ZombieTypes[tk.type]?.body || 0x8b4513;
     this._emitParticles(tk.pos.clone(), 15, bodyColor, { x: 2, y: 3, z: 2 }, 0.5);
 
-    // Splitter spawns mini turkeys
+    // Bloater spawns mini zombies
     if (tk.type === 'SPLITTER') {
       for (let i = 0; i < 2; i++) {
         const angle = Math.random() * Math.PI * 2;
         const offset = new THREE.Vector3(Math.cos(angle) * 2, 0, Math.sin(angle) * 2);
-        const mini = this._createTurkey(tk.pos.clone().add(offset), 'SPLITTER', tk.scale * 0.6);
+        const mini = this._createZombie(tk.pos.clone().add(offset), 'SPLITTER', tk.scale * 0.6);
         mini.val = Math.floor(tk.val * 0.3);
-        this.state.turkeys.push(mini);
+        this.state.zombies.push(mini);
       }
     }
   }
@@ -1773,7 +1790,7 @@ export class GameEngine {
 
       // Find target
       const range = TurretTypes[turret.type].range;
-      const nearby = this.turkeyGrid.queryRadius(turret.mesh.position, range);
+      const nearby = this.zombieGrid.queryRadius(turret.mesh.position, range);
 
       let target = null;
       let minDist = range;
@@ -1812,9 +1829,9 @@ export class GameEngine {
         const angle = Math.random() * Math.PI * 2;
         const dist = 45 + Math.random() * 10;
         const pos = new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
-        const turkey = this._createTurkey(pos, type);
-        this.state.turkeys.push(turkey);
-        this.turkeyGrid.insert(turkey, turkey.pos);
+        const zombie = this._createZombie(pos, type);
+        this.state.zombies.push(zombie);
+        this.zombieGrid.insert(zombie, zombie.pos);
         this.state.toSpawn--;
         this.state.totalSpawnedThisWave++;
 
@@ -1834,118 +1851,123 @@ export class GameEngine {
     return weighted[Math.floor(Math.random() * weighted.length)];
   }
 
-  _createTurkey(pos, type, customScale = null) {
-    const stats = TurkeyTypes[type];
+  _createZombie(pos, type, customScale = null) {
+    const stats = ZombieTypes[type];
     const s = customScale || stats.scale;
 
     const group = new THREE.Group();
 
-    // Body
-    const bodyGeo = new THREE.SphereGeometry(0.5, 14, 10);
-    bodyGeo.scale(1.1, 0.85, 1.2);
+    // Humanoid torso
+    const bodyGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 10);
     const bodyMesh = new THREE.Mesh(
       bodyGeo,
-      new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.95 })
     );
-    bodyMesh.position.y = 0.5;
+    bodyMesh.position.y = 0.65;
     bodyMesh.scale.setScalar(s);
     bodyMesh.castShadow = true;
     group.add(bodyMesh);
 
+    // Legs
+    const legMat = new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.95 });
+    [-0.12, 0.12].forEach(x => {
+      const leg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.1, 0.5, 6),
+        legMat
+      );
+      leg.position.set(x * s, 0.25 * s, 0);
+      leg.scale.setScalar(s);
+      group.add(leg);
+    });
+
     // Head
     const headMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 10, 8),
-      new THREE.MeshStandardMaterial({ color: stats.head, roughness: 0.6 })
+      new THREE.SphereGeometry(0.2, 10, 8),
+      new THREE.MeshStandardMaterial({ color: stats.head, roughness: 0.8 })
     );
-    headMesh.position.set(0, 0.7, 0.45);
+    headMesh.position.set(0, 1.15 * s, 0);
     headMesh.scale.setScalar(s);
     group.add(headMesh);
 
-    // Beak
-    const beak = new THREE.Mesh(
-      new THREE.ConeGeometry(0.06, 0.15, 6),
-      new THREE.MeshStandardMaterial({ color: 0xffa500 })
-    );
-    beak.position.set(0, 0.68, 0.65);
-    beak.rotation.x = Math.PI / 2;
-    beak.scale.setScalar(s);
-    group.add(beak);
-
-    // Tail feathers
-    const tailGroup = new THREE.Group();
-    for (let i = 0; i < 7; i++) {
-      const feather = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.18, 0.4),
-        new THREE.MeshStandardMaterial({ color: i % 2 ? stats.body : 0x654321, side: THREE.DoubleSide, roughness: 0.95 })
+    // Arms (hanging down zombie-style)
+    const armMat = new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.95 });
+    [-0.35, 0.35].forEach((x, i) => {
+      const arm = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.08, 0.5, 6),
+        armMat
       );
-      feather.position.set(0, 0.65, -0.35);
-      feather.rotation.y = (i - 3) * 0.2;
-      feather.rotation.x = -0.4;
-      tailGroup.add(feather);
-    }
-    tailGroup.scale.setScalar(s);
-    group.add(tailGroup);
+      arm.position.set(x * s, 0.5 * s, 0.15 * s);
+      arm.rotation.x = 0.4;  // Arms reaching forward
+      arm.rotation.z = x > 0 ? -0.15 : 0.15;
+      arm.scale.setScalar(s);
+      group.add(arm);
+    });
 
     // Type-specific visuals
     if (type === 'TANK') {
+      // Brute: shoulder armor
       const armor = new THREE.Mesh(
-        new THREE.BoxGeometry(0.55, 0.35, 0.7),
-        new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.4 })
+        new THREE.BoxGeometry(0.7, 0.25, 0.45),
+        new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.6, roughness: 0.5 })
       );
-      armor.position.set(0, 0.65 * s, 0);
+      armor.position.set(0, 0.95 * s, 0);
       group.add(armor);
     }
     if (type === 'BOSS') {
-      const crown = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.12, 0.14, 0.12, 8),
-        new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.9, roughness: 0.2, emissive: 0xffd700, emissiveIntensity: 0.2 })
-      );
-      crown.position.set(0, 0.95 * s, 0.35 * s);
-      group.add(crown);
+      // Overlord: horns
+      [-0.12, 0.12].forEach(x => {
+        const horn = new THREE.Mesh(
+          new THREE.ConeGeometry(0.06, 0.25, 6),
+          new THREE.MeshStandardMaterial({ color: 0x2a1a2a, metalness: 0.3 })
+        );
+        horn.position.set(x * s, 1.35 * s, 0);
+        horn.rotation.z = x > 0 ? -0.3 : 0.3;
+        group.add(horn);
+      });
     }
     if (type === 'HEALER') {
-      const cross = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, 0.1, 0.1),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x00ff00, emissiveIntensity: 0.5 })
+      // Necromancer: glowing purple orb
+      const orb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.7 })
       );
-      cross.position.set(0, 0.9 * s, 0);
-      group.add(cross);
-      const crossV = cross.clone();
-      crossV.rotation.z = Math.PI / 2;
-      group.add(crossV);
+      orb.position.set(0.35 * s, 0.7 * s, 0.15 * s);
+      group.add(orb);
     }
     if (type === 'SPLITTER') {
+      // Bloater: bloated glow effect
+      bodyMesh.scale.set(s * 1.3, s * 1.1, s * 1.3);
       const glow = new THREE.Mesh(
-        new THREE.SphereGeometry(0.6, 12, 10),
-        new THREE.MeshBasicMaterial({ color: 0x9400d3, transparent: true, opacity: 0.3 })
+        new THREE.SphereGeometry(0.5, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0x7a8a5a, transparent: true, opacity: 0.25 })
       );
-      glow.position.y = 0.5;
-      glow.scale.setScalar(s);
+      glow.position.y = 0.65 * s;
       group.add(glow);
     }
     if (type === 'RUNNER') {
-      [-0.08, 0.08].forEach(x => {
-        const lens = new THREE.Mesh(
-          new THREE.SphereGeometry(0.04, 8, 6),
-          new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.7 })
+      // Sprinter: glowing red eyes
+      [-0.06, 0.06].forEach(x => {
+        const eye = new THREE.Mesh(
+          new THREE.SphereGeometry(0.03, 6, 4),
+          new THREE.MeshBasicMaterial({ color: 0xff4400 })
         );
-        lens.position.set(x * s, 0.75 * s, 0.48 * s);
-        group.add(lens);
+        eye.position.set(x * s, 1.18 * s, 0.18 * s);
+        group.add(eye);
       });
     }
 
     group.position.copy(pos);
     this.scene.add(group);
 
-    // Sound effect
+    // Sound effect - zombie groan
     if (Math.random() < 0.3) {
-      setTimeout(() => this.audioManager?.playSound('gobble'), Math.random() * 1000);
+      setTimeout(() => this.audioManager?.playSound('groan'), Math.random() * 1000);
     }
 
     return {
       mesh: group,
       body: bodyMesh,
-      tail: tailGroup,
+      tail: null,  // Zombies don't have tails
       pos: pos.clone(),
       hp: stats.hp * (customScale ? customScale / stats.scale : 1),
       maxHp: stats.hp * (customScale ? customScale / stats.scale : 1),
@@ -2158,7 +2180,7 @@ export class GameEngine {
   }
 
   _applySplashDamage(pos, radius, damage) {
-    for (const tk of this.state.turkeys) {
+    for (const tk of this.state.zombies) {
       if (tk.dead) continue;
       const dx = tk.pos.x - pos.x;
       const dz = tk.pos.z - pos.z;
@@ -2172,12 +2194,12 @@ export class GameEngine {
           tk.body.material.color.set(0xff0000);
           setTimeout(() => {
             if (tk.body && tk.body.material) {
-              tk.body.material.color.set(TurkeyTypes[tk.type].body);
+              tk.body.material.color.set(ZombieTypes[tk.type].body);
             }
           }, 80);
         }
 
-        if (tk.hp <= 0) this._killTurkey(tk);
+        if (tk.hp <= 0) this._killZombie(tk);
       }
     }
   }
@@ -2642,7 +2664,7 @@ export class GameEngine {
       const dataURL = this.renderer.domElement.toDataURL('image/png');
       const link = document.createElement('a');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      link.download = `TurkeyTrotDefense_${timestamp}.png`;
+      link.download = `HomesteadSiege_${timestamp}.png`;
       link.href = dataURL;
       document.body.appendChild(link);
       link.click();
@@ -2662,11 +2684,11 @@ export class GameEngine {
    * Reset game state for a new game
    */
   reset() {
-    // Clean up turkeys
-    for (const tk of this.state.turkeys) {
+    // Clean up zombies
+    for (const tk of this.state.zombies) {
       this.scene.remove(tk.mesh);
     }
-    this.state.turkeys = [];
+    this.state.zombies = [];
 
     // Clean up projectiles
     for (const p of this.state.projectiles) {
@@ -2715,7 +2737,7 @@ export class GameEngine {
     this._buildHouse(0);
 
     // Clear spatial indices
-    this.turkeyGrid.clear();
+    this.zombieGrid.clear();
     this.turretGrid.clear();
     this.buildingValidator.clear();
     this.damageManager.clear();
@@ -2741,7 +2763,7 @@ export class GameEngine {
       health: Math.round((this.state.player.health / this.state.player.maxHealth) * 100),
       currency: this.state.currency,
       wave: this.state.wave,
-      enemies: this.state.turkeys.filter(tk => !tk.dead).length,
+      enemies: this.state.zombies.filter(tk => !tk.dead).length,
       score: this.state.score,
       houseIntegrity,
       isInside: this.state.player.isInside

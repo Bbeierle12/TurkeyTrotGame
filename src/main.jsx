@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import TurkeyTrotDefense from './TurkeyTrotDefense'
+import HomesteadSiege from './HomesteadSiege'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <TurkeyTrotDefense />
+  <HomesteadSiege />
 )

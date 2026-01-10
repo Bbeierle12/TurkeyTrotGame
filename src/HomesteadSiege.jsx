@@ -1,5 +1,5 @@
 /**
- * TurkeyTrotDefense - Refactored React Component
+ * HomesteadSiege - Refactored React Component
  *
  * This component only handles UI overlay and instantiates the GameEngine.
  * All game logic is in src/engine/GameEngine.js
@@ -10,7 +10,7 @@ import * as Tone from 'tone';
 import {
   GameEngine,
   WeaponTypes,
-  TurkeyTypes,
+  ZombieTypes,
   HouseUpgrades,
   TurretTypes,
   AbilityTypes
@@ -98,7 +98,7 @@ class AudioManager {
         case 'explosion': this.synths.explosion.triggerAttackRelease('8n', t); break;
         case 'hit': this.synths.ui.triggerAttackRelease('A4', '32n', t); break;
         case 'kill': this.synths.coin.triggerAttackRelease('E5', '16n', t); break;
-        case 'gobble': this.synths.gobble.triggerAttackRelease(200 + Math.random() * 100, '8n', t); break;
+        case 'groan': this.synths.gobble.triggerAttackRelease(80 + Math.random() * 40, '8n', t); break;
         case 'hurt': this.synths.hurt.triggerAttackRelease('16n', t); break;
         case 'wave': this.synths.ui.triggerAttackRelease('C4', '8n', t); break;
         case 'gameover': this.synths.ui.triggerAttackRelease('E4', '4n', t); break;
@@ -125,7 +125,7 @@ const audioManager = new AudioManager();
 // =========================
 // SAVE/LOAD SYSTEM
 // =========================
-const SAVE_KEY = 'turkeyTrotDefense_saveData';
+const SAVE_KEY = 'homesteadSiege_saveData';
 
 const getDefaultSaveData = () => ({
   playerStats: {
@@ -169,7 +169,7 @@ const saveGameData = (playerStats, unlockedAchievements, settings) => {
 // =========================
 // MAIN COMPONENT
 // =========================
-export default function TurkeyTrotDefense() {
+export default function HomesteadSiege() {
   // Container ref for Three.js
   const containerRef = useRef(null);
   const engineRef = useRef(null);
@@ -439,7 +439,7 @@ export default function TurkeyTrotDefense() {
                 <span className="text-orange-400 font-bold text-lg">Wave {stats.wave}</span>
                 {endlessMode && <span className="text-purple-400 text-sm">♾️</span>}
               </div>
-              <div className="text-gray-400 text-sm">🦃 {stats.enemies} remaining</div>
+              <div className="text-gray-400 text-sm">🧟 {stats.enemies} remaining</div>
               <div className="text-white text-sm">⭐ {stats.score}</div>
             </div>
 
@@ -538,9 +538,9 @@ export default function TurkeyTrotDefense() {
       {/* Start screen */}
       {!started && (
         <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center">
-          <div className="text-6xl mb-4">🦃🏠🔱</div>
-          <h1 className="text-5xl font-black text-white mb-2" style={{ textShadow: '0 0 20px rgba(255,100,0,0.8)' }}>Turkey Trot Defense</h1>
-          <p className="text-gray-400 mb-4 text-lg">Defend your barn from the turkey invasion!</p>
+          <div className="text-6xl mb-4">🧟🏠🔱</div>
+          <h1 className="text-5xl font-black text-white mb-2" style={{ textShadow: '0 0 20px rgba(100,150,255,0.8)' }}>Homestead Siege</h1>
+          <p className="text-gray-400 mb-4 text-lg">Defend your barn from the zombie horde!</p>
 
           <div className="bg-black/50 rounded-xl px-6 py-3 mb-6 flex gap-6 text-sm">
             <div className="text-center">
@@ -693,7 +693,7 @@ export default function TurkeyTrotDefense() {
             <div className="space-y-4 text-gray-300">
               <div>
                 <h3 className="text-yellow-400 font-bold mb-1">Objective</h3>
-                <p>Survive the turkey invasion! Hide in your house for protection, but they can break in!</p>
+                <p>Survive the zombie horde! Hide in your house for protection, but they can break in!</p>
               </div>
               <div>
                 <h3 className="text-yellow-400 font-bold mb-1">Controls</h3>
@@ -711,9 +711,9 @@ export default function TurkeyTrotDefense() {
               <div>
                 <h3 className="text-yellow-400 font-bold mb-1">Abilities</h3>
                 <div className="text-sm space-y-1">
-                  <p><span className="text-white">Q - Turkey Bomb</span> - Airstrike at cursor</p>
+                  <p><span className="text-white">Q - Artillery Strike</span> - Airstrike at cursor</p>
                   <p><span className="text-white">X - Frost Nova</span> - Freeze all enemies</p>
-                  <p><span className="text-white">R - Harvest Rage</span> - 2x damage & fire rate</p>
+                  <p><span className="text-white">R - Survival Fury</span> - 2x damage & fire rate</p>
                   <p><span className="text-white">F - Emergency Repair</span> - Repair doors/windows</p>
                 </div>
               </div>
@@ -744,7 +744,7 @@ export default function TurkeyTrotDefense() {
       {/* Game over */}
       {gameOver && (
         <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40">
-          <div className="text-6xl mb-4">💀🦃</div>
+          <div className="text-6xl mb-4">💀🧟</div>
           <h1 className="text-5xl font-black text-red-500 mb-2">GAME OVER</h1>
           {stats.score >= highScore && stats.score > 0 && (
             <div className="text-2xl text-yellow-400 font-bold mb-2 animate-pulse">NEW HIGH SCORE!</div>
