@@ -42,12 +42,12 @@ describe('GameLoop Integration', () => {
       engine.state.wave = 1;
       const comp = engine._getWaveComposition(1);
 
-      // Wave 1 should be simple with mostly standard turkeys
+      // Wave 1 should be simple with mostly standard zombies
       expect(comp.STANDARD).toBeDefined();
       expect(comp.STANDARD).toBeGreaterThan(0);
     });
 
-    it('should introduce new turkey types in later waves', () => {
+    it('should introduce new zombie types in later waves', () => {
       // Wave 3+ should introduce runners
       const wave3Comp = engine._getWaveComposition(3);
       // Wave 4+ should have runners with high probability

@@ -1,7 +1,7 @@
 /**
  * StabilityOptimizer - Performance optimization for structural stability systems
  * 
- * Adapted from the skills blueprint for Turkey Trot Defense.
+ * Adapted from the skills blueprint for Homestead Siege.
  * Provides caching, batch recalculation, incremental updates, and dirty tracking
  * to handle large numbers of turrets efficiently.
  * 

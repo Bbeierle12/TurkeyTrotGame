@@ -117,57 +117,57 @@ describe('GameConfig', () => {
   });
 
   // ============================================
-  // TURKEY TYPES
+  // ZOMBIE TYPES
   // ============================================
   describe('ZombieTypes', () => {
-    const turkeyKeys = ['STANDARD', 'RUNNER', 'TANK', 'HEALER', 'SPLITTER', 'BOSS'];
+    const zombieKeys = ['STANDARD', 'RUNNER', 'TANK', 'HEALER', 'SPLITTER', 'BOSS'];
 
-    it('should have exactly 6 turkey types', () => {
+    it('should have exactly 6 zombie types', () => {
       expect(Object.keys(ZombieTypes)).toHaveLength(6);
     });
 
-    it('should have all expected turkey types', () => {
-      turkeyKeys.forEach((key) => {
+    it('should have all expected zombie types', () => {
+      zombieKeys.forEach((key) => {
         expect(ZombieTypes).toHaveProperty(key);
       });
     });
 
-    describe.each(turkeyKeys)('%s', (turkeyKey) => {
-      const turkey = ZombieTypes[turkeyKey];
+    describe.each(zombieKeys)('%s', (zombieKey) => {
+      const zombie = ZombieTypes[zombieKey];
 
       it('should have a name', () => {
-        expect(turkey.name).toBeDefined();
-        expect(typeof turkey.name).toBe('string');
+        expect(zombie.name).toBeDefined();
+        expect(typeof zombie.name).toBe('string');
       });
 
       it('should have positive HP', () => {
-        expect(turkey.hp).toBePositive();
-        expect(turkey.hp).toBeInteger();
+        expect(zombie.hp).toBePositive();
+        expect(zombie.hp).toBeInteger();
       });
 
       it('should have speed between 0.1 and 5.0', () => {
-        expect(turkey.speed).toBeInRange(0.1, 5.0);
+        expect(zombie.speed).toBeInRange(0.1, 5.0);
       });
 
       it('should have positive damage', () => {
-        expect(turkey.damage).toBePositive();
+        expect(zombie.damage).toBePositive();
       });
 
       it('should have positive value (score)', () => {
-        expect(turkey.value).toBePositive();
-        expect(turkey.value).toBeInteger();
+        expect(zombie.value).toBePositive();
+        expect(zombie.value).toBeInteger();
       });
 
       it('should have positive scale', () => {
-        expect(turkey.scale).toBePositive();
+        expect(zombie.scale).toBePositive();
       });
 
       it('should have body color', () => {
-        expect(typeof turkey.body).toBe('number');
+        expect(typeof zombie.body).toBe('number');
       });
 
       it('should have head color', () => {
-        expect(typeof turkey.head).toBe('number');
+        expect(typeof zombie.head).toBe('number');
       });
     });
 
@@ -197,17 +197,17 @@ describe('GameConfig', () => {
     });
 
     it('BOSS should have highest HP', () => {
-      const maxHp = Math.max(...turkeyKeys.map((k) => ZombieTypes[k].hp));
+      const maxHp = Math.max(...zombieKeys.map((k) => ZombieTypes[k].hp));
       expect(ZombieTypes.BOSS.hp).toBe(maxHp);
     });
 
     it('BOSS should have highest value', () => {
-      const maxValue = Math.max(...turkeyKeys.map((k) => ZombieTypes[k].value));
+      const maxValue = Math.max(...zombieKeys.map((k) => ZombieTypes[k].value));
       expect(ZombieTypes.BOSS.value).toBe(maxValue);
     });
 
     it('value should generally correlate with difficulty (HP)', () => {
-      // Higher HP turkeys should be worth more
+      // Higher HP zombies should be worth more
       expect(ZombieTypes.TANK.value).toBeGreaterThan(ZombieTypes.STANDARD.value);
       expect(ZombieTypes.BOSS.value).toBeGreaterThan(ZombieTypes.TANK.value);
     });
@@ -462,8 +462,8 @@ describe('GameConfig', () => {
   describe('Achievements', () => {
     const achievementKeys = [
       'FIRST_BLOOD',
-      'TURKEY_HUNTER',
-      'TURKEY_SLAYER',
+      'ZOMBIE_HUNTER',
+      'ZOMBIE_SLAYER',
       'WAVE_5',
       'WAVE_10',
       'WAVE_20',
@@ -534,9 +534,9 @@ describe('GameConfig', () => {
       expect(Achievements.FIRST_BLOOD.check({ totalKills: 1 })).toBe(true);
     });
 
-    it('TURKEY_HUNTER should trigger at 100 kills', () => {
-      expect(Achievements.TURKEY_HUNTER.check({ totalKills: 99 })).toBe(false);
-      expect(Achievements.TURKEY_HUNTER.check({ totalKills: 100 })).toBe(true);
+    it('ZOMBIE_HUNTER should trigger at 100 kills', () => {
+      expect(Achievements.ZOMBIE_HUNTER.check({ totalKills: 99 })).toBe(false);
+      expect(Achievements.ZOMBIE_HUNTER.check({ totalKills: 100 })).toBe(true);
     });
 
     it('WAVE_10 should trigger at wave 10', () => {

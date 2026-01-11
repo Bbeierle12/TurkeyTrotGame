@@ -66,7 +66,7 @@ describe('Building Damage Integration', () => {
         health: 100
       });
 
-      const result = damageable.takeDamage(25, 'turkey_attack', 'turkey_1');
+      const result = damageable.takeDamage(25, 'zombie_attack', 'zombie_1');
 
       expect(result.damageDealt).toBe(25);
       expect(result.newHealth).toBe(75);

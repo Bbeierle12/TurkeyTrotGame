@@ -88,10 +88,10 @@ export const weaponStats = {
 };
 
 // ============================================
-// TURKEY STATS
+// ZOMBIE STATS
 // ============================================
 
-export const turkeyStats = {
+export const zombieStats = {
   STANDARD: { hp: 35, speed: 1.0, damage: 8, value: 10 },
   RUNNER: { hp: 22, speed: 1.8, damage: 6, value: 12 },
   TANK: { hp: 120, speed: 0.6, damage: 20, value: 30 },
@@ -207,7 +207,7 @@ export const houseStats = {
 
 export const abilityStats = {
   AIRSTRIKE: {
-    name: 'Turkey Bomb',
+    name: 'Artillery Strike',
     cooldown: 45,
     duration: 0,
     damage: 150,
@@ -220,7 +220,7 @@ export const abilityStats = {
     slowAmount: 0.9
   },
   RAGE: {
-    name: 'Harvest Rage',
+    name: 'Survival Fury',
     cooldown: 40,
     duration: 10,
     damageMultiplier: 2,
@@ -240,8 +240,8 @@ export const abilityStats = {
 
 export const achievementDefinitions = {
   FIRST_BLOOD: { name: 'First Blood', threshold: { totalKills: 1 } },
-  TURKEY_HUNTER: { name: 'Turkey Hunter', threshold: { totalKills: 100 } },
-  TURKEY_SLAYER: { name: 'Turkey Slayer', threshold: { totalKills: 500 } },
+  ZOMBIE_HUNTER: { name: 'Zombie Hunter', threshold: { totalKills: 100 } },
+  ZOMBIE_SLAYER: { name: 'Zombie Slayer', threshold: { totalKills: 500 } },
   WAVE_5: { name: 'Getting Started', threshold: { highestWave: 5 } },
   WAVE_10: { name: 'Veteran Defender', threshold: { highestWave: 10 } },
   WAVE_20: { name: 'Master Defender', threshold: { highestWave: 20 } },
@@ -341,12 +341,12 @@ export const validationScenarios = {
 export const collisionScenarios = {
   directHit: {
     projectilePos: { x: 10, y: 1, z: 9 },
-    turkeyPos: { x: 10, y: 0, z: 10 },
+    zombiePos: { x: 10, y: 0, z: 10 },
     expected: true
   },
   nearMiss: {
     projectilePos: { x: 10, y: 1, z: 5 },
-    turkeyPos: { x: 10, y: 0, z: 10 },
+    zombiePos: { x: 10, y: 0, z: 10 },
     expected: false
   },
   splashHit: {
@@ -400,7 +400,7 @@ export default {
   bossWave,
   stressTestWave,
   weaponStats,
-  turkeyStats,
+  zombieStats,
   turretStats,
   houseStats,
   abilityStats,

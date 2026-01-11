@@ -127,12 +127,12 @@ describe('GameEngine', () => {
       expect(snapshot.turretCount).toBe(3);
     });
 
-    it('should capture turkey count', () => {
-      const turkeys = [createMockZombie(), createMockZombie()];
-      const state = createMockGameState({ turkeys });
+    it('should capture zombie count', () => {
+      const zombies = [createMockZombie(), createMockZombie()];
+      const state = createMockGameState({ zombies });
       const snapshot = new StateSnapshot(state);
 
-      expect(snapshot.turkeyCount).toBe(2);
+      expect(snapshot.zombieCount).toBe(2);
     });
 
     it('should capture projectile count', () => {
@@ -146,13 +146,13 @@ describe('GameEngine', () => {
     it('should handle empty arrays gracefully', () => {
       const state = createMockGameState({
         turrets: [],
-        turkeys: [],
+        zombies: [],
         projectiles: []
       });
       const snapshot = new StateSnapshot(state);
 
       expect(snapshot.turretCount).toBe(0);
-      expect(snapshot.turkeyCount).toBe(0);
+      expect(snapshot.zombieCount).toBe(0);
       expect(snapshot.projectileCount).toBe(0);
     });
   });
@@ -164,7 +164,7 @@ describe('GameEngine', () => {
   describe('Constructor', () => {
     it('should create engine with default config', () => {
       expect(engine.config.spatialCellSize).toBe(5);
-      expect(engine.config.maxTurkeys).toBe(500);
+      expect(engine.config.maxZombies).toBe(500);
       expect(engine.config.maxProjectiles).toBe(200);
       expect(engine.config.collisionRadius).toBe(2.0);
       expect(engine.config.turretMinDistance).toBe(5);
@@ -174,12 +174,12 @@ describe('GameEngine', () => {
     it('should accept custom config options', () => {
       const customEngine = new GameEngine({
         spatialCellSize: 10,
-        maxTurkeys: 1000,
+        maxZombies: 1000,
         collisionRadius: 3.0
       });
 
       expect(customEngine.config.spatialCellSize).toBe(10);
-      expect(customEngine.config.maxTurkeys).toBe(1000);
+      expect(customEngine.config.maxZombies).toBe(1000);
       expect(customEngine.config.collisionRadius).toBe(3.0);
       // Defaults should still be preserved
       expect(customEngine.config.maxProjectiles).toBe(200);
@@ -221,7 +221,7 @@ describe('GameEngine', () => {
     });
 
     it('should initialize empty arrays for entities', () => {
-      expect(engine.state.turkeys).toEqual([]);
+      expect(engine.state.zombies).toEqual([]);
       expect(engine.state.projectiles).toEqual([]);
       expect(engine.state.turretProjectiles).toEqual([]);
       expect(engine.state.turrets).toEqual([]);
@@ -268,7 +268,7 @@ describe('GameEngine', () => {
     });
 
     it('should initialize spatial grids', () => {
-      expect(engine.turkeyGrid).toBeDefined();
+      expect(engine.zombieGrid).toBeDefined();
       expect(engine.turretGrid).toBeDefined();
     });
 
@@ -300,7 +300,7 @@ describe('GameEngine', () => {
   // ============================================
 
   describe('Wave Composition (_getWaveComposition)', () => {
-    it('should return only STANDARD turkeys for wave 1', () => {
+    it('should return only STANDARD zombies for wave 1', () => {
       const comp = engine._getWaveComposition(1, false);
 
       expect(comp.STANDARD).toBeGreaterThan(0);
@@ -311,7 +311,7 @@ describe('GameEngine', () => {
       expect(comp.BOSS).toBe(0);
     });
 
-    it('should return only STANDARD turkeys for wave 2', () => {
+    it('should return only STANDARD zombies for wave 2', () => {
       const comp = engine._getWaveComposition(2, false);
 
       expect(comp.STANDARD).toBeGreaterThan(0);
@@ -1168,7 +1168,7 @@ describe('GameEngine', () => {
       engine.state.globalFreeze = 3;
       engine.state.rageActive = 5;
 
-      // Mock scene for turkey/projectile cleanup
+      // Mock scene for zombie/projectile cleanup
       engine.scene = {
         remove: vi.fn()
       };
@@ -1232,10 +1232,10 @@ describe('GameEngine', () => {
       expect(engine.state.currentWeapon).toBe('PITCHFORK');
     });
 
-    it('should clear turkeys array', () => {
-      engine.state.turkeys = [createMockZombie(), createMockZombie()];
+    it('should clear zombies array', () => {
+      engine.state.zombies = [createMockZombie(), createMockZombie()];
       engine.reset();
-      expect(engine.state.turkeys).toEqual([]);
+      expect(engine.state.zombies).toEqual([]);
     });
 
     it('should clear projectiles array', () => {
@@ -1256,14 +1256,14 @@ describe('GameEngine', () => {
     });
 
     it('should clear spatial grids', () => {
-      engine.turkeyGrid.clear = vi.fn();
+      engine.zombieGrid.clear = vi.fn();
       engine.turretGrid.clear = vi.fn();
       engine.buildingValidator.clear = vi.fn();
       engine.damageManager.clear = vi.fn();
 
       engine.reset();
 
-      expect(engine.turkeyGrid.clear).toHaveBeenCalled();
+      expect(engine.zombieGrid.clear).toHaveBeenCalled();
       expect(engine.turretGrid.clear).toHaveBeenCalled();
       expect(engine.buildingValidator.clear).toHaveBeenCalled();
       expect(engine.damageManager.clear).toHaveBeenCalled();

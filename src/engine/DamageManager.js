@@ -1,7 +1,7 @@
 /**
  * DamageManager - Damage states and cascading destruction for turrets
  * 
- * Adapted from the skills blueprint (DamageSystem) for Turkey Trot Defense.
+ * Adapted from the skills blueprint (DamageSystem) for Homestead Siege.
  * Handles turret damage states, visual feedback, and destruction cascades.
  */
 

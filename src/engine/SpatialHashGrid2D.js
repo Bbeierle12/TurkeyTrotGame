@@ -1,8 +1,8 @@
 /**
- * SpatialHashGrid2D - Optimized 2D spatial partitioning for Turkey Trot Defense
- * 
+ * SpatialHashGrid2D - Optimized 2D spatial partitioning for Homestead Siege
+ *
  * Adapted from the skills blueprint for the game's specific needs.
- * Uses 2D grid (ignores Y) since turkeys and projectiles move on a plane.
+ * Uses 2D grid (ignores Y) since zombies and projectiles move on a plane.
  * 
  * Performance: O(1) cell lookup + O(k) objects per cell
  * Best for: <5000 entities with uniform distribution

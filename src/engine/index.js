@@ -1,5 +1,5 @@
 /**
- * Turkey Trot Defense - Engine Module
+ * Homestead Siege - Engine Module
  * 
  * This module provides the decoupled game engine systems based on the
  * architectural blueprints in .claude/skills/3d-building-mechanics/

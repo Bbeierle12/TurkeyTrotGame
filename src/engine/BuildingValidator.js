@@ -1,7 +1,7 @@
 /**
  * BuildingValidator - Structural validation for turret placement
  * 
- * Adapted from the skills blueprint (HeuristicValidator) for Turkey Trot Defense.
+ * Adapted from the skills blueprint (HeuristicValidator) for Homestead Siege.
  * Validates turret placement based on distance rules and optional structural support.
  */
 
