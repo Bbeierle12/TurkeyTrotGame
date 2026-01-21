@@ -37,31 +37,31 @@ export const ZombieTypes = {
 export const HouseUpgrades = {
   BASIC: {
     level: 0, name: 'Starter Cabin', cost: 0,
-    width: 5.5, depth: 7, height: 4, roofHeight: 2.8,
+    width: 10, depth: 12, height: 5, roofHeight: 3.5,
     doors: 1, windows: 2, doorHealth: 50, windowHealth: 30,
-    description: 'A small wooden cabin'
+    description: 'A wooden cabin in the corner'
   },
   COTTAGE: {
     level: 1, name: 'Cottage', cost: 200,
-    width: 7, depth: 9, height: 4.5, roofHeight: 3.2,
+    width: 12, depth: 14, height: 5.5, roofHeight: 3.8,
     doors: 1, windows: 4, doorHealth: 75, windowHealth: 45,
     description: 'A cozy cottage with more windows'
   },
   FARMHOUSE: {
     level: 2, name: 'Farmhouse', cost: 400,
-    width: 9, depth: 11, height: 5, roofHeight: 3.5,
+    width: 14, depth: 16, height: 6, roofHeight: 4.2,
     doors: 2, windows: 6, doorHealth: 100, windowHealth: 60,
     description: 'A sturdy farmhouse with two doors'
   },
   MANOR: {
     level: 3, name: 'Manor', cost: 700,
-    width: 12, depth: 14, height: 6, roofHeight: 4,
+    width: 18, depth: 20, height: 7, roofHeight: 4.8,
     doors: 2, windows: 8, doorHealth: 150, windowHealth: 80,
     description: 'A fortified manor house'
   },
   FORTRESS: {
     level: 4, name: 'Fortress', cost: 1000,
-    width: 15, depth: 17, height: 7, roofHeight: 4.5,
+    width: 22, depth: 24, height: 8, roofHeight: 5.5,
     doors: 3, windows: 10, doorHealth: 200, windowHealth: 100,
     description: 'An impenetrable fortress'
   }

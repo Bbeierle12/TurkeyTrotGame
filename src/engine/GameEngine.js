@@ -461,7 +461,9 @@ export class GameEngine {
     hatTop.position.y = 1.52;
     this.playerGroup.add(hatTop);
 
-    this.playerGroup.position.set(0, 0, 10);
+    // Position player near house (in front of front door)
+    this.playerGroup.position.set(-40, 0, -25);
+    this.state.player.pos.set(-40, 0, -25);
     this.scene.add(this.playerGroup);
   }
 
@@ -557,8 +559,12 @@ export class GameEngine {
     // Create windows (interactive)
     this._createWindowsOnWalls(windowsPerSide, depth, height, width, windowHealth);
 
+    // Position house in corner (back-left)
+    const houseCornerX = -40;
+    const houseCornerZ = -40;
+    this.houseGroup.position.set(houseCornerX, 0, houseCornerZ);
     this.scene.add(this.houseGroup);
-    this.state.house.pos.set(0, 0, 0);
+    this.state.house.pos.set(houseCornerX, 0, houseCornerZ);
     this.state.house.doors = this.houseDoors;
     this.state.house.windows = this.houseWindows;
   }
@@ -745,45 +751,79 @@ export class GameEngine {
   }
 
   _initTrees() {
-    // Place trees around the entire perimeter of the map - dense treeline
-    const mapEdge = 65; // Position trees just outside the playable area
-    const treeSpacing = 3; // Reduced spacing for denser trees
-    const treeVariation = 1.5; // Random position variation
+    // Place trees around the entire perimeter of the map - very dense treeline
+    const mapEdge = 55; // Position trees closer to create tighter perimeter
+    const treeSpacing = 1.5; // Very dense spacing
+    const treeVariation = 0.8; // Less variation for more uniform wall
 
-    // Create multiple rows of trees for a dense forest edge
-    const treeRows = [0, 5, 10]; // Three rows at different depths
+    // Create multiple rows of trees for an impenetrable forest edge
+    const treeRows = [0, 3, 6, 9, 12]; // Five rows at different depths
+
+    // Opening configuration - single gap on the east side for zombie path
+    const openingCenterZ = 0; // Opening centered at Z=0
+    const openingWidth = 12; // Width of the opening (path)
+    const openingMinZ = openingCenterZ - openingWidth / 2;
+    const openingMaxZ = openingCenterZ + openingWidth / 2;
 
     treeRows.forEach(rowOffset => {
       const edgePos = mapEdge + rowOffset;
 
-      // North edge
+      // North edge - full coverage
       for (let x = -edgePos; x <= edgePos; x += treeSpacing) {
         const xPos = x + (Math.random() - 0.5) * treeVariation;
         const zPos = -edgePos + (Math.random() - 0.5) * treeVariation;
         this._createTree(xPos, zPos);
       }
 
-      // South edge
+      // South edge - full coverage
       for (let x = -edgePos; x <= edgePos; x += treeSpacing) {
         const xPos = x + (Math.random() - 0.5) * treeVariation;
         const zPos = edgePos + (Math.random() - 0.5) * treeVariation;
         this._createTree(xPos, zPos);
       }
 
-      // East edge (excluding corners already covered)
+      // East edge - WITH OPENING (zombie path)
       for (let z = -edgePos + treeSpacing; z < edgePos; z += treeSpacing) {
+        // Skip trees in the opening zone
+        if (z > openingMinZ && z < openingMaxZ) continue;
+
         const xPos = edgePos + (Math.random() - 0.5) * treeVariation;
         const zPos = z + (Math.random() - 0.5) * treeVariation;
         this._createTree(xPos, zPos);
       }
 
-      // West edge (excluding corners already covered)
+      // West edge - full coverage (house side, behind the player)
       for (let z = -edgePos + treeSpacing; z < edgePos; z += treeSpacing) {
         const xPos = -edgePos + (Math.random() - 0.5) * treeVariation;
         const zPos = z + (Math.random() - 0.5) * treeVariation;
         this._createTree(xPos, zPos);
       }
     });
+
+    // Add extra dense trees around the opening to make it more defined
+    this._createPathBorderTrees(mapEdge, openingMinZ, openingMaxZ);
+  }
+
+  _createPathBorderTrees(mapEdge, openingMinZ, openingMaxZ) {
+    // Create dense tree borders on both sides of the opening path
+    const pathBorderRows = 4;
+    const borderSpacing = 1.2;
+
+    for (let row = 0; row < pathBorderRows; row++) {
+      const xPos = mapEdge + row * 3;
+
+      // North side of path
+      for (let i = 0; i < 5; i++) {
+        const z = openingMinZ - 1 - i * borderSpacing;
+        this._createTree(xPos + (Math.random() - 0.5), z + (Math.random() - 0.5) * 0.5);
+      }
+
+      // South side of path
+      for (let i = 0; i < 5; i++) {
+        const z = openingMaxZ + 1 + i * borderSpacing;
+        this._createTree(xPos + (Math.random() - 0.5), z + (Math.random() - 0.5) * 0.5);
+      }
+    }
   }
 
   _createTree(x, z) {
@@ -1303,88 +1343,112 @@ export class GameEngine {
     const wallBuffer = 0.5;
     const doorHalfWidth = 0.9; // Door opening is 1.8 wide, so half is 0.9
 
+    // Convert world position to local (relative to house center)
+    const housePos = this.state.house.pos;
+    const localX = newPos.x - housePos.x;
+    const localZ = newPos.z - housePos.z;
+
     // Check if position is in the interior zone
-    const inInteriorX = newPos.x > -halfW && newPos.x < halfW;
-    const inInteriorZ = newPos.z > -halfD && newPos.z < halfD;
-    
+    const inInteriorX = localX > -halfW && localX < halfW;
+    const inInteriorZ = localZ > -halfD && localZ < halfD;
+
     // Check if position is at a door opening (X within door width)
-    const atFrontDoor = Math.abs(newPos.x) < doorHalfWidth && newPos.z > 0;
-    const atBackDoor = Math.abs(newPos.x) < doorHalfWidth && newPos.z < 0 && 
+    const atFrontDoor = Math.abs(localX) < doorHalfWidth && localZ > 0;
+    const atBackDoor = Math.abs(localX) < doorHalfWidth && localZ < 0 &&
                        this.houseDoors.some(d => d.name === 'back');
 
     if (!this.state.player.isInside) {
       // Player is outside - check wall collisions individually
-      
+
       // Front wall (positive Z) - allow through door only
-      if (inInteriorX && newPos.z < halfD + wallBuffer && newPos.z > halfD - wallBuffer) {
+      if (inInteriorX && localZ < halfD + wallBuffer && localZ > halfD - wallBuffer) {
         if (!atFrontDoor) {
-          newPos.z = halfD + wallBuffer;
-        } else if (newPos.z < halfD - wallBuffer) {
+          newPos.z = housePos.z + halfD + wallBuffer;
+        } else if (localZ < halfD - wallBuffer) {
           // Entering through front door
           this.state.player.isInside = true;
         }
       }
-      
+
       // Back wall (negative Z) - allow through door only if exists
-      if (inInteriorX && newPos.z > -halfD - wallBuffer && newPos.z < -halfD + wallBuffer) {
+      if (inInteriorX && localZ > -halfD - wallBuffer && localZ < -halfD + wallBuffer) {
         if (!atBackDoor) {
-          newPos.z = -halfD - wallBuffer;
-        } else if (newPos.z > -halfD + wallBuffer) {
+          newPos.z = housePos.z - halfD - wallBuffer;
+        } else if (localZ > -halfD + wallBuffer) {
           // Entering through back door
           this.state.player.isInside = true;
         }
       }
-      
+
       // Left wall (negative X) - solid wall
-      if (inInteriorZ && newPos.x > -halfW - wallBuffer && newPos.x < -halfW + wallBuffer) {
-        newPos.x = -halfW - wallBuffer;
+      if (inInteriorZ && localX > -halfW - wallBuffer && localX < -halfW + wallBuffer) {
+        newPos.x = housePos.x - halfW - wallBuffer;
       }
-      
+
       // Right wall (positive X) - solid wall
-      if (inInteriorZ && newPos.x < halfW + wallBuffer && newPos.x > halfW - wallBuffer) {
-        newPos.x = halfW + wallBuffer;
+      if (inInteriorZ && localX < halfW + wallBuffer && localX > halfW - wallBuffer) {
+        newPos.x = housePos.x + halfW + wallBuffer;
       }
-      
+
       // Prevent corner clipping - if fully inside, push out to nearest edge
-      if (newPos.x > -halfW + wallBuffer && newPos.x < halfW - wallBuffer &&
-          newPos.z > -halfD + wallBuffer && newPos.z < halfD - wallBuffer) {
+      if (localX > -halfW + wallBuffer && localX < halfW - wallBuffer &&
+          localZ > -halfD + wallBuffer && localZ < halfD - wallBuffer) {
         // Calculate distances to each wall
-        const distToFront = halfD - newPos.z;
-        const distToBack = newPos.z + halfD;
-        const distToLeft = newPos.x + halfW;
-        const distToRight = halfW - newPos.x;
-        
+        const distToFront = halfD - localZ;
+        const distToBack = localZ + halfD;
+        const distToLeft = localX + halfW;
+        const distToRight = halfW - localX;
+
         // Find minimum distance and push out through that wall (or door)
         const minDist = Math.min(distToFront, distToBack, distToLeft, distToRight);
-        
+
         if (minDist === distToFront) {
           if (atFrontDoor) {
             this.state.player.isInside = true;
           } else {
-            newPos.z = halfD + wallBuffer;
+            newPos.z = housePos.z + halfD + wallBuffer;
           }
         } else if (minDist === distToBack) {
           if (atBackDoor) {
             this.state.player.isInside = true;
           } else {
-            newPos.z = -halfD - wallBuffer;
+            newPos.z = housePos.z - halfD - wallBuffer;
           }
         } else if (minDist === distToLeft) {
-          newPos.x = -halfW - wallBuffer;
+          newPos.x = housePos.x - halfW - wallBuffer;
         } else {
-          newPos.x = halfW + wallBuffer;
+          newPos.x = housePos.x + halfW + wallBuffer;
         }
       }
     } else {
       // Player is inside - allow exit through doors
-      if (atFrontDoor && newPos.z > halfD) {
-        this.state.player.isInside = false;
-      } else if (atBackDoor && newPos.z < -halfD) {
-        this.state.player.isInside = false;
+      // Check X bounds first (always constrain X)
+      newPos.x = Math.max(housePos.x - halfW + wallBuffer, Math.min(housePos.x + halfW - wallBuffer, newPos.x));
+
+      // For Z, check if player is trying to exit through a door
+      if (atFrontDoor) {
+        // At front door - allow moving forward to exit
+        if (localZ > halfD - wallBuffer) {
+          // Player is trying to exit through front door
+          this.state.player.isInside = false;
+          // Don't clamp Z - let them exit
+        } else {
+          // Not at threshold yet, allow movement toward door
+          newPos.z = Math.max(housePos.z - halfD + wallBuffer, newPos.z);
+        }
+      } else if (atBackDoor) {
+        // At back door - allow moving backward to exit
+        if (localZ < -halfD + wallBuffer) {
+          // Player is trying to exit through back door
+          this.state.player.isInside = false;
+          // Don't clamp Z - let them exit
+        } else {
+          // Not at threshold yet, allow movement toward door
+          newPos.z = Math.min(housePos.z + halfD - wallBuffer, newPos.z);
+        }
       } else {
-        // Keep player inside bounds
-        newPos.x = Math.max(-halfW + wallBuffer, Math.min(halfW - wallBuffer, newPos.x));
-        newPos.z = Math.max(-halfD + wallBuffer, Math.min(halfD - wallBuffer, newPos.z));
+        // Not at a door - keep player inside bounds
+        newPos.z = Math.max(housePos.z - halfD + wallBuffer, Math.min(housePos.z + halfD - wallBuffer, newPos.z));
       }
     }
   }
@@ -1448,9 +1512,15 @@ export class GameEngine {
     if (fromTurret) {
       mesh.position.copy(dir.origin);
       mesh.position.y = 1.2;
+      // Orient turret projectile toward target
+      const targetPoint = mesh.position.clone().add(dir.direction);
+      mesh.lookAt(targetPoint);
     } else {
       mesh.position.copy(this.state.player.pos).setY(0.9);
       mesh.position.addScaledVector(dir, 0.7);
+      // Orient player projectile toward aim direction
+      const targetPoint = mesh.position.clone().add(dir);
+      mesh.lookAt(targetPoint);
     }
     mesh.castShadow = true;
     this.scene.add(mesh);
@@ -1492,19 +1562,40 @@ export class GameEngine {
       }
     }
 
+    // Path waypoints - zombies follow these through the opening
+    // Waypoint 1: Inside the opening (guides zombies through the gap)
+    // Waypoint 2: Center of the play area (distributes zombies)
+    const pathWaypoints = [
+      new THREE.Vector3(40, 0, 0),   // First waypoint - entrance to the path
+      new THREE.Vector3(15, 0, -10), // Second waypoint - guide toward house area
+    ];
+
     for (const tk of this.state.zombies) {
       if (tk.dead) continue;
 
       // Target selection
-      let targetPos;
+      let finalTarget;
       let targetIsHouse = false;
 
       if (this.state.player.isInside) {
-        targetPos = this.state.house.pos.clone();
+        finalTarget = this.state.house.pos.clone();
         targetIsHouse = true;
       } else {
-        targetPos = this.state.player.pos.clone();
+        finalTarget = this.state.player.pos.clone();
       }
+
+      // Pathfinding: Check if zombie needs to follow waypoints
+      let targetPos = finalTarget;
+
+      // If zombie is still in the spawn/path area (X > 35), guide through waypoints
+      if (tk.pos.x > 35) {
+        // Still in the path corridor - head toward first waypoint
+        targetPos = pathWaypoints[0];
+      } else if (tk.pos.x > 10 && tk.pos.z > 5) {
+        // In transition zone, guide toward second waypoint
+        targetPos = pathWaypoints[1];
+      }
+      // Otherwise, go directly to final target
 
       const dir = new THREE.Vector3().subVectors(targetPos, tk.pos).normalize();
       let speed = tk.spd * (tk.slowMult || 1);
@@ -1527,8 +1618,8 @@ export class GameEngine {
       tk.mesh.lookAt(targetPos);
       tk.mesh.position.y = Math.abs(Math.sin(t * 10)) * 0.5;
 
-      // Attack logic
-      this._handleZombieAttack(tk, targetPos, targetIsHouse, dt);
+      // Attack logic (use final target for attack checks)
+      this._handleZombieAttack(tk, finalTarget, targetIsHouse, dt);
     }
   }
 
@@ -1826,9 +1917,11 @@ export class GameEngine {
       const type = this._getNextSpawnType();
       if (type) {
         this.spawnedCounts[type]++;
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 45 + Math.random() * 10;
-        const pos = new THREE.Vector3(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+        // Spawn from the opening on the east side
+        // Opening is at X=55-67, Z=-6 to 6 (12 unit wide opening)
+        const spawnX = 60 + Math.random() * 10; // Spawn outside the treeline opening
+        const spawnZ = (Math.random() - 0.5) * 10; // Within the opening width
+        const pos = new THREE.Vector3(spawnX, 0, spawnZ);
         const zombie = this._createZombie(pos, type);
         this.state.zombies.push(zombie);
         this.zombieGrid.insert(zombie, zombie.pos);
@@ -2716,7 +2809,7 @@ export class GameEngine {
     this.state.gameOver = false;
     this.state.waveComplete = false;
     this.state.currentWeapon = 'PITCHFORK';
-    this.state.player.pos.set(0, 0, 10);
+    this.state.player.pos.set(-40, 0, -25);  // Near house in corner
     this.state.player.health = 100;
     this.state.player.maxHealth = 100;
     this.state.player.isInside = false;
