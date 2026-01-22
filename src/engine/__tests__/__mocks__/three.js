@@ -134,6 +134,32 @@ export class Vector3 {
 }
 
 // ============================================
+// VECTOR2
+// ============================================
+export class Vector2 {
+  constructor(x = 0, y = 0) {
+    this.x = x;
+    this.y = y;
+  }
+
+  set(x, y) {
+    this.x = x;
+    this.y = y;
+    return this;
+  }
+
+  copy(v) {
+    this.x = v.x;
+    this.y = v.y;
+    return this;
+  }
+
+  clone() {
+    return new Vector2(this.x, this.y);
+  }
+}
+
+// ============================================
 // EULER
 // ============================================
 export class Euler {
@@ -680,7 +706,11 @@ export class Fog {
 // ============================================
 export class Raycaster {
   constructor(origin, direction, near = 0, far = Infinity) {
-    this.ray = { origin: origin || new Vector3(), direction: direction || new Vector3() };
+    this.ray = {
+      origin: origin || new Vector3(),
+      direction: direction || new Vector3(),
+      intersectPlane: () => null
+    };
     this.near = near;
     this.far = far;
   }
@@ -695,6 +725,16 @@ export class Raycaster {
 
   intersectObjects(objects, recursive = false) {
     return [];
+  }
+}
+
+// ============================================
+// PLANE
+// ============================================
+export class Plane {
+  constructor(normal = new Vector3(1, 0, 0), constant = 0) {
+    this.normal = normal;
+    this.constant = constant;
   }
 }
 
@@ -715,13 +755,39 @@ export class WebGLRenderer {
     };
     this.toneMapping = 0;
     this.toneMappingExposure = 1;
+    this.info = {
+      memory: { geometries: 0, textures: 0 },
+      programs: [],
+      render: { calls: 0, triangles: 0 }
+    };
+    this.autoClear = true;
+    this._animationLoop = null;
+    this._clearColor = new Color(0x000000);
+    this._clearAlpha = 1;
   }
 
   setSize(width, height) {}
   setPixelRatio(ratio) {}
   render(scene, camera) {}
   dispose() {}
-  setClearColor(color, alpha) {}
+  setClearColor(color, alpha = 1) {
+    this._clearColor = color instanceof Color ? color : new Color(color);
+    this._clearAlpha = alpha;
+  }
+  getClearColor(target) {
+    if (target) {
+      target.copy(this._clearColor);
+      return target;
+    }
+    return this._clearColor.clone();
+  }
+  getClearAlpha() {
+    return this._clearAlpha;
+  }
+  clear() {}
+  setAnimationLoop(callback) {
+    this._animationLoop = callback;
+  }
   getSize(target) {
     target.set(800, 600);
     return target;
@@ -753,6 +819,7 @@ export const MathUtils = {
 // DEFAULT EXPORT
 // ============================================
 export default {
+  Vector2,
   Vector3,
   Euler,
   Quaternion,
@@ -788,6 +855,7 @@ export default {
   Line,
   Fog,
   Raycaster,
+  Plane,
   WebGLRenderer,
   DoubleSide,
   FrontSide,

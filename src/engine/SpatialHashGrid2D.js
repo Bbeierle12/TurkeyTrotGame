@@ -124,6 +124,10 @@ export class SpatialHashGrid2D {
    * Find nearest object
    */
   findNearest(position, maxRadius = Infinity) {
+    if (this.objectCount === 0) {
+      return null;
+    }
+
     let nearest = null;
     let nearestDistSq = maxRadius * maxRadius;
 

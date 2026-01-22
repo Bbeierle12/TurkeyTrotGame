@@ -39,7 +39,7 @@ describe('GameLoop Integration', () => {
 
   describe('Wave Progression System', () => {
     it('should calculate correct wave composition for early waves', () => {
-      engine.state.wave = 1;
+      engine.state.activeWaveNumber = 1;
       const comp = engine._getWaveComposition(1);
 
       // Wave 1 should be simple with mostly standard zombies
@@ -198,14 +198,14 @@ describe('GameLoop Integration', () => {
 
   describe('State Snapshot System', () => {
     it('should create consistent snapshots', () => {
-      engine.state.wave = 5;
+      engine.state.activeWaveNumber = 5;
       engine.state.currency = 1000;
       engine.state.score = 5000;
       engine.state.zombies = [createMockZombie(), createMockZombie()];
 
       const snapshot = new StateSnapshot(engine.state);
 
-      expect(snapshot.wave).toBe(5);
+      expect(snapshot.activeWaveNumber).toBe(5);
       expect(snapshot.currency).toBe(1000);
       expect(snapshot.score).toBe(5000);
       expect(snapshot.zombieCount).toBe(2);
@@ -321,7 +321,7 @@ describe('GameLoop Integration', () => {
     });
 
     it('should handle pause/unpause cycle', () => {
-      engine.state.started = true;
+      engine.startGame(false);
 
       engine.togglePause();
       expect(engine.state.paused).toBe(true);
@@ -332,7 +332,7 @@ describe('GameLoop Integration', () => {
 
     it('should track wave completion state', () => {
       engine.state.started = true;
-      engine.state.wave = 1;
+      engine.state.activeWaveNumber = 1;
       engine.state.zombies = [];
       engine.state.toSpawn = 0;
       engine.state.totalSpawnedThisWave = 5;
@@ -374,10 +374,13 @@ describe('GameLoop Integration', () => {
       const callback = vi.fn();
       engine.on('onWaveComplete', callback);
 
+      engine.startGame(false);
+      engine.startWave();
+
       // Trigger wave complete via internal method
       engine._onWaveComplete();
 
-      expect(callback).toHaveBeenCalledWith(engine.state.wave);
+      expect(callback).toHaveBeenCalledWith(engine.state.activeWaveNumber);
     });
   });
 });

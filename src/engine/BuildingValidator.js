@@ -16,6 +16,17 @@ export const ValidationMode = {
 };
 
 /**
+ * Placement validation codes for UI feedback.
+ */
+export const ValidationCode = Object.freeze({
+  NO_POSITION: 'NO_POSITION',
+  TOO_CLOSE: 'TOO_CLOSE',
+  TOO_FAR: 'TOO_FAR',
+  BLOCKED: 'BLOCKED',
+  NO_SUPPORT: 'NO_SUPPORT'
+});
+
+/**
  * Support graph for tracking piece relationships
  */
 class SupportGraph {
@@ -249,51 +260,87 @@ export class BuildingValidator {
    */
   validatePlacement(piece) {
     const result = {
-      valid: false,
+      ok: false,
       stability: 1.0,
-      reason: null
+      reasons: [],
+      debug: {}
     };
 
     const position = piece.position;
     if (!position) {
-      result.reason = 'No position specified';
+      result.reasons.push({
+        code: ValidationCode.NO_POSITION,
+        message: 'No position specified'
+      });
       return result;
     }
 
     // Check distance from barn
     const distToBarn = position.distanceTo(this.barnPosition);
+    result.debug.distanceToBarn = distToBarn;
+    result.debug.minDistanceFromBarn = this.minDistanceFromBarn;
+    result.debug.maxDistanceFromBarn = this.maxDistanceFromBarn;
 
     if (distToBarn < this.minDistanceFromBarn) {
-      result.reason = `Too close to barn (min: ${this.minDistanceFromBarn} units)`;
-      return result;
+      result.reasons.push({
+        code: ValidationCode.TOO_CLOSE,
+        message: `Too close to barn (min: ${this.minDistanceFromBarn} units)`,
+        data: {
+          minDistance: this.minDistanceFromBarn,
+          distance: distToBarn
+        }
+      });
     }
 
     if (distToBarn > this.maxDistanceFromBarn) {
-      result.reason = `Too far from barn (max: ${this.maxDistanceFromBarn} units)`;
-      return result;
+      result.reasons.push({
+        code: ValidationCode.TOO_FAR,
+        message: `Too far from barn (max: ${this.maxDistanceFromBarn} units)`,
+        data: {
+          maxDistance: this.maxDistanceFromBarn,
+          distance: distToBarn
+        }
+      });
     }
 
     // Check for overlapping pieces
+    const minSpacing = 1.5; // Minimum spacing between turrets
+    const offenders = [];
     for (const existing of this.graph.getAllPieces()) {
       if (existing.position) {
         const dist = position.distanceTo(existing.position);
-        if (dist < 1.5) { // Minimum spacing between turrets
-          result.reason = 'Too close to another structure';
-          return result;
+        if (dist < minSpacing) {
+          offenders.push({
+            id: existing.id,
+            distance: dist
+          });
         }
       }
+    }
+    if (offenders.length > 0) {
+      result.reasons.push({
+        code: ValidationCode.BLOCKED,
+        message: 'Too close to another structure',
+        data: {
+          minSpacing,
+          offenders
+        }
+      });
+      result.debug.offendingIds = offenders.map(offender => offender.id);
     }
 
     // In heuristic mode, check structural support
     if (this.mode === ValidationMode.HEURISTIC) {
       const supports = this.findPotentialSupports(piece);
       if (supports.length === 0 && !piece.isGrounded) {
-        result.reason = 'No support found';
-        return result;
+        result.reasons.push({
+          code: ValidationCode.NO_SUPPORT,
+          message: 'No support found'
+        });
       }
     }
 
-    result.valid = true;
+    result.ok = result.reasons.length === 0;
     return result;
   }
 

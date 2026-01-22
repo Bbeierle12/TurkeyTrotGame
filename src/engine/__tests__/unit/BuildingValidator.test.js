@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { BuildingValidator, ValidationMode } from '../../BuildingValidator.js';
+import { BuildingValidator, ValidationMode, ValidationCode } from '../../BuildingValidator.js';
 import { Vector3 } from '../__mocks__/three.js';
 import {
   createMockPiece,
@@ -214,16 +214,16 @@ describe('BuildingValidator', () => {
         const piece = { id: 'test', position: null };
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('No position specified');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.NO_POSITION);
       });
 
       it('should reject piece with undefined position', () => {
         const piece = { id: 'test' };
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('No position specified');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.NO_POSITION);
       });
     });
 
@@ -234,8 +234,8 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toContain('Too close to barn');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.TOO_CLOSE);
       });
 
       it('should reject piece at barn position', () => {
@@ -244,8 +244,8 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toContain('Too close to barn');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.TOO_CLOSE);
       });
 
       it('should reject piece too far from barn', () => {
@@ -254,8 +254,8 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toContain('Too far from barn');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.TOO_FAR);
       });
 
       it('should accept piece at minimum distance', () => {
@@ -264,7 +264,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
 
       it('should accept piece at maximum distance', () => {
@@ -273,7 +273,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
 
       it('should accept piece in valid range', () => {
@@ -282,7 +282,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
 
       it('should use custom barn position', () => {
@@ -296,7 +296,7 @@ describe('BuildingValidator', () => {
         });
         const result = customValidator.validatePlacement(piece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
     });
 
@@ -312,8 +312,8 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(newPiece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('Too close to another structure');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.BLOCKED);
       });
 
       it('should accept piece at minimum spacing', () => {
@@ -327,7 +327,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(newPiece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
 
       it('should check against all existing pieces', () => {
@@ -344,7 +344,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(newPiece);
 
-        expect(result.valid).toBe(false);
+        expect(result.ok).toBe(false);
       });
 
       it('should handle pieces without position gracefully', () => {
@@ -356,7 +356,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(newPiece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
     });
 
@@ -372,7 +372,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
 
       it('should reject non-grounded pieces without support', () => {
@@ -382,8 +382,8 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('No support found');
+        expect(result.ok).toBe(false);
+        expect(result.reasons[0].code).toBe(ValidationCode.NO_SUPPORT);
       });
 
       it('should accept non-grounded pieces with support', () => {
@@ -401,7 +401,7 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result.valid).toBe(true);
+        expect(result.ok).toBe(true);
       });
     });
 
@@ -412,9 +412,10 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result).toHaveProperty('valid', true);
+        expect(result).toHaveProperty('ok', true);
         expect(result).toHaveProperty('stability', 1.0);
-        expect(result).toHaveProperty('reason', null);
+        expect(result).toHaveProperty('reasons');
+        expect(result.reasons).toHaveLength(0);
       });
 
       it('should return invalid result with reason', () => {
@@ -423,9 +424,10 @@ describe('BuildingValidator', () => {
         });
         const result = validator.validatePlacement(piece);
 
-        expect(result).toHaveProperty('valid', false);
+        expect(result).toHaveProperty('ok', false);
         expect(result).toHaveProperty('stability', 1.0);
-        expect(result.reason).toBeTruthy();
+        expect(result.reasons.length).toBeGreaterThan(0);
+        expect(result.reasons[0].message).toBeTruthy();
       });
     });
   });
@@ -834,13 +836,13 @@ describe('BuildingValidator', () => {
       const pieceAtMin = createMockPiece({
         position: createPosition(5, 0, 0)
       });
-      expect(validator.validatePlacement(pieceAtMin).valid).toBe(true);
+      expect(validator.validatePlacement(pieceAtMin).ok).toBe(true);
 
       // Exactly at max distance
       const pieceAtMax = createMockPiece({
         position: createPosition(35, 0, 0)
       });
-      expect(validator.validatePlacement(pieceAtMax).valid).toBe(true);
+      expect(validator.validatePlacement(pieceAtMax).ok).toBe(true);
     });
 
     it('should handle diagonal distances correctly', () => {
@@ -848,7 +850,7 @@ describe('BuildingValidator', () => {
       const diagonal = createMockPiece({
         position: createPosition(7, 0, 7)
       });
-      expect(validator.validatePlacement(diagonal).valid).toBe(true);
+      expect(validator.validatePlacement(diagonal).ok).toBe(true);
     });
 
     it('should handle negative coordinates', () => {
@@ -857,7 +859,7 @@ describe('BuildingValidator', () => {
       });
       const result = validator.validatePlacement(negative);
 
-      expect(result.valid).toBe(true);
+      expect(result.ok).toBe(true);
     });
 
     it('should handle very large piece counts', () => {
@@ -866,7 +868,7 @@ describe('BuildingValidator', () => {
       let addedCount = 0;
       for (const piece of pieces) {
         const result = validator.validatePlacement(piece);
-        if (result.valid) {
+        if (result.ok) {
           validator.addPiece(piece);
           addedCount++;
         }
@@ -899,7 +901,7 @@ describe('BuildingValidator', () => {
       });
       const result = customValidator.validatePlacement(pieceAtBarn);
 
-      expect(result.valid).toBe(true);
+      expect(result.ok).toBe(true);
     });
   });
 });

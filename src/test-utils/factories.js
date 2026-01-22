@@ -53,6 +53,8 @@ export function createRandomPosition(bounds = { min: -50, max: 50 }) {
  */
 export function createMockPiece(overrides = {}) {
   const id = overrides.id ?? generateId('piece');
+  const activeWaveNumber = overrides.activeWaveNumber ?? overrides.wave ?? 0;
+
   return {
     id,
     position: overrides.position ?? createPosition(10, 0, 10),
@@ -297,6 +299,11 @@ export function createMockMesh(overrides = {}) {
  * Create a mock game state
  */
 export function createMockGameState(overrides = {}) {
+  const activeWaveNumber = overrides.activeWaveNumber ?? overrides.wave ?? 0;
+  const overridesCopy = { ...overrides };
+  delete overridesCopy.wave;
+  delete overridesCopy.activeWaveNumber;
+
   return {
     started: overrides.started ?? false,
     gameOver: overrides.gameOver ?? false,
@@ -333,7 +340,7 @@ export function createMockGameState(overrides = {}) {
     turretProjectiles: overrides.turretProjectiles ?? [],
     turrets: overrides.turrets ?? [],
 
-    wave: overrides.wave ?? 0,
+    activeWaveNumber,
     toSpawn: overrides.toSpawn ?? 0,
     totalSpawnedThisWave: overrides.totalSpawnedThisWave ?? 0,
     expectedThisWave: overrides.expectedThisWave ?? 0,
@@ -373,7 +380,8 @@ export function createMockGameState(overrides = {}) {
 
     placingTurret: overrides.placingTurret ?? null,
 
-    ...overrides
+    ...overridesCopy,
+    activeWaveNumber
   };
 }
 
@@ -390,7 +398,7 @@ export function createFullUpgradeState() {
       houseLevel: 4
     },
     currency: 10000,
-    wave: 20
+    activeWaveNumber: 20
   });
 }
 
@@ -480,7 +488,7 @@ export function createMockValidator(overrides = {}) {
     },
 
     validatePlacement(piece) {
-      return { valid: true, stability: 1.0, reason: null };
+      return { ok: true, stability: 1.0, reasons: [], debug: {} };
     },
 
     getStability() {

@@ -24,7 +24,9 @@ export default defineConfig({
     exclude: [
       'node_modules',
       'dist',
-      '.claude'
+      '.claude',
+      'src/**/__mocks__/**',
+      'src/**/__tests__/__mocks__/**'
     ],
 
     // Coverage configuration

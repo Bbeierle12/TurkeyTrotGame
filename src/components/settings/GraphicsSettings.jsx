@@ -95,6 +95,24 @@ export default function GraphicsSettings({ settings, onSettingChange, onBatchSet
           onChange={(value) => onSettingChange('showFps', value)}
           description="Display frames per second counter"
         />
+
+        <SettingToggle
+          label="Show Performance HUD"
+          value={settings.showPerfHud}
+          onChange={(value) => onSettingChange('showPerfHud', value)}
+          description="Display FPS, entities, and renderer stats"
+        />
+
+        <SettingSlider
+          label="UI Scale"
+          value={settings.uiScale ?? 1}
+          min={0.85}
+          max={1.3}
+          step={0.05}
+          onChange={(value) => onSettingChange('uiScale', value)}
+          formatValue={(value) => `${Math.round(value * 100)}%`}
+          description="Scale UI text and panels"
+        />
       </div>
     </div>
   );

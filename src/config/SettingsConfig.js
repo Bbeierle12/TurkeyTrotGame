@@ -175,6 +175,23 @@ export const SettingsDefinitions = {
     default: false,
     description: 'Display frames per second counter'
   },
+  showPerfHud: {
+    category: 'graphics',
+    label: 'Show Performance HUD',
+    type: 'toggle',
+    default: false,
+    description: 'Display FPS, entities, and renderer stats'
+  },
+  uiScale: {
+    category: 'graphics',
+    label: 'UI Scale',
+    type: 'slider',
+    default: 1.0,
+    min: 0.85,
+    max: 1.3,
+    step: 0.05,
+    description: 'Scale UI text and panels'
+  },
 
   // === AUDIO ===
   masterVolume: {

@@ -34,7 +34,7 @@ describe('Building Damage Integration', () => {
       const result = validator.validatePlacement(piece);
 
       expect(result).toBeDefined();
-      expect(result.valid).toBeDefined();
+      expect(result.ok).toBeDefined();
     });
 
     it('should track placed pieces', () => {

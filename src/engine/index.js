@@ -14,6 +14,6 @@
 
 export { GameEngine, StateSnapshot } from './GameEngine.js';
 export { SpatialHashGrid2D } from './SpatialHashGrid2D.js';
-export { BuildingValidator, ValidationMode } from './BuildingValidator.js';
+export { BuildingValidator, ValidationMode, ValidationCode } from './BuildingValidator.js';
 export { DamageManager, DamageState, DamageType, DamageVisualizer } from './DamageManager.js';
 export { StabilityOptimizer, ZonedStabilityOptimizer, UpdatePriority } from './StabilityOptimizer.js';

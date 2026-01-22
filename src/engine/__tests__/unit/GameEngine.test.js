@@ -79,7 +79,7 @@ describe('GameEngine', () => {
       const state = createMockGameState({ wave: 7 });
       const snapshot = new StateSnapshot(state);
 
-      expect(snapshot.wave).toBe(7);
+      expect(snapshot.activeWaveNumber).toBe(7);
     });
 
     it('should capture score', () => {
@@ -195,7 +195,7 @@ describe('GameEngine', () => {
     it('should initialize default camera settings', () => {
       expect(engine.cameraMode).toBe('ISOMETRIC');
       expect(engine.zoom).toBe(1.0);
-      expect(engine.cameraAngle).toBe(0);
+      expect(engine.cameraAngle).toBe(Math.PI); // Camera behind player
       expect(engine.pointerLocked).toBe(false);
     });
 
@@ -228,7 +228,7 @@ describe('GameEngine', () => {
     });
 
     it('should initialize wave state', () => {
-      expect(engine.state.wave).toBe(0);
+      expect(engine.state.activeWaveNumber).toBe(0);
       expect(engine.state.toSpawn).toBe(0);
       expect(engine.state.totalSpawnedThisWave).toBe(0);
       expect(engine.state.expectedThisWave).toBe(0);
@@ -470,9 +470,9 @@ describe('GameEngine', () => {
       const callback = vi.fn();
       engine.on('onWeaponChange', callback);
 
-      engine.setWeapon('PUMPKIN_MORTAR');
+      engine.setWeapon('HAY_BALE_CATAPULT');
 
-      expect(callback).toHaveBeenCalledWith(WeaponTypes.PUMPKIN_MORTAR);
+      expect(callback).toHaveBeenCalledWith(WeaponTypes.HAY_BALE_CATAPULT);
     });
 
     it('should play click sound', () => {
@@ -524,6 +524,11 @@ describe('GameEngine', () => {
   });
 
   describe('togglePause', () => {
+    beforeEach(() => {
+      // Must be in a game phase (not READY) to toggle pause
+      engine.phase = 'WAVE_PREP';
+    });
+
     it('should toggle pause state', () => {
       expect(engine.state.paused).toBe(false);
 
@@ -600,16 +605,18 @@ describe('GameEngine', () => {
     beforeEach(() => {
       engine.state.started = true;
       engine.state.waveComplete = true;
+      engine.phase = 'WAVE_PREP'; // Must be in WAVE_PREP or WAVE_COMPLETE to start wave
     });
 
     it('should increment wave number', () => {
       engine.startWave();
-      expect(engine.state.wave).toBe(1);
+      expect(engine.state.activeWaveNumber).toBe(1);
 
       // Reset for next wave
       engine.state.waveComplete = true;
+      engine.phase = 'WAVE_COMPLETE'; // Must be in proper phase to start next wave
       engine.startWave();
-      expect(engine.state.wave).toBe(2);
+      expect(engine.state.activeWaveNumber).toBe(2);
     });
 
     it('should set waveComplete to false', () => {
@@ -653,19 +660,20 @@ describe('GameEngine', () => {
     it('should NOT start wave if game not started', () => {
       engine.state.started = false;
       engine.startWave();
-      expect(engine.state.wave).toBe(0);
+      expect(engine.state.activeWaveNumber).toBe(0);
     });
 
     it('should NOT start wave if wave already in progress', () => {
       engine.state.waveComplete = false;
+      engine.phase = 'WAVE_ACTIVE'; // Wave is in progress
       engine.startWave();
-      expect(engine.state.wave).toBe(0);
+      expect(engine.state.activeWaveNumber).toBe(0);
     });
 
     it('should NOT start wave if game over', () => {
       engine.state.gameOver = true;
       engine.startWave();
-      expect(engine.state.wave).toBe(0);
+      expect(engine.state.activeWaveNumber).toBe(0);
     });
 
     it('should emit onWaitingForWave(false) callback', () => {
@@ -1115,20 +1123,20 @@ describe('GameEngine', () => {
 
   describe('getState', () => {
     it('should return copy of state', () => {
-      engine.state.wave = 5;
+      engine.state.activeWaveNumber = 5;
       engine.state.score = 1000;
 
       const state = engine.getState();
 
-      expect(state.wave).toBe(5);
+      expect(state.activeWaveNumber).toBe(5);
       expect(state.score).toBe(1000);
     });
 
     it('should return isolated copy (not reference)', () => {
       const state = engine.getState();
-      state.wave = 999;
+      state.activeWaveNumber = 999;
 
-      expect(engine.state.wave).toBe(0);
+      expect(engine.state.activeWaveNumber).toBe(0);
     });
   });
 
@@ -1158,7 +1166,7 @@ describe('GameEngine', () => {
   describe('reset', () => {
     beforeEach(() => {
       // Modify state to verify reset
-      engine.state.wave = 10;
+      engine.state.activeWaveNumber = 10;
       engine.state.score = 5000;
       engine.state.currency = 500;
       engine.state.gameOver = true;
@@ -1181,7 +1189,7 @@ describe('GameEngine', () => {
 
     it('should reset wave to 0', () => {
       engine.reset();
-      expect(engine.state.wave).toBe(0);
+      expect(engine.state.activeWaveNumber).toBe(0);
     });
 
     it('should reset score to 0', () => {
@@ -1207,8 +1215,8 @@ describe('GameEngine', () => {
 
     it('should reset player position', () => {
       engine.reset();
-      expect(engine.state.player.pos.x).toBe(0);
-      expect(engine.state.player.pos.z).toBe(10);
+      expect(engine.state.player.pos.x).toBe(-40);
+      expect(engine.state.player.pos.z).toBe(-25);
     });
 
     it('should reset upgrades', () => {
@@ -1349,7 +1357,7 @@ describe('GameEngine', () => {
       expect(engine.state.currentWeapon).toBe('EGG_BLASTER');
 
       engine._handleKey({ code: 'Digit4' }, true);
-      expect(engine.state.currentWeapon).toBe('PUMPKIN_MORTAR');
+      expect(engine.state.currentWeapon).toBe('HAY_BALE_CATAPULT');
 
       engine._handleKey({ code: 'Digit1' }, true);
       expect(engine.state.currentWeapon).toBe('PITCHFORK');
@@ -1358,17 +1366,19 @@ describe('GameEngine', () => {
     it('should start wave on Space key', () => {
       engine.state.started = true;
       engine.state.waveComplete = true;
+      engine.phase = 'WAVE_PREP'; // Set proper phase for wave start
 
       engine._handleKey({ code: 'Space' }, true);
-      expect(engine.state.wave).toBe(1);
+      expect(engine.state.activeWaveNumber).toBe(1);
     });
 
     it('should start wave on N key', () => {
       engine.state.started = true;
       engine.state.waveComplete = true;
+      engine.phase = 'WAVE_PREP'; // Set proper phase for wave start
 
       engine._handleKey({ code: 'KeyN' }, true);
-      expect(engine.state.wave).toBe(1);
+      expect(engine.state.activeWaveNumber).toBe(1);
     });
 
     it('should rotate camera on comma key', () => {
@@ -1389,12 +1399,12 @@ describe('GameEngine', () => {
 
     it('should reset camera on Z key', () => {
       engine.audioManager = mockAudioManager;
-      engine.cameraAngle = Math.PI;
+      engine.cameraAngle = Math.PI / 2; // Set to something other than default
       engine.panOffset = new Vector3(10, 0, 10);
 
       engine._handleKey({ code: 'KeyZ' }, true);
 
-      expect(engine.cameraAngle).toBe(0);
+      expect(engine.cameraAngle).toBe(Math.PI); // Default behind-player view
       expect(engine.panOffset.x).toBe(0);
       expect(engine.panOffset.z).toBe(0);
     });
@@ -1405,8 +1415,13 @@ describe('GameEngine', () => {
   // ============================================
 
   describe('_onWaveComplete', () => {
+    beforeEach(() => {
+      // Must be in WAVE_ACTIVE phase to transition to WAVE_COMPLETE
+      engine.phase = 'WAVE_ACTIVE';
+    });
+
     it('should set waveComplete to true', () => {
-      engine.state.wave = 1;
+      engine.state.activeWaveNumber = 1;
       engine._onWaveComplete();
       expect(engine.state.waveComplete).toBe(true);
     });
@@ -1414,7 +1429,7 @@ describe('GameEngine', () => {
     it('should emit onWaveComplete callback', () => {
       const callback = vi.fn();
       engine.on('onWaveComplete', callback);
-      engine.state.wave = 5;
+      engine.state.activeWaveNumber = 5;
 
       engine._onWaveComplete();
       expect(callback).toHaveBeenCalledWith(5);
@@ -1423,7 +1438,7 @@ describe('GameEngine', () => {
     it('should emit onWaitingForWave callback', () => {
       const callback = vi.fn();
       engine.on('onWaitingForWave', callback);
-      engine.state.wave = 1;
+      engine.state.activeWaveNumber = 1;
 
       engine._onWaveComplete();
       expect(callback).toHaveBeenCalledWith(true);
@@ -1432,7 +1447,7 @@ describe('GameEngine', () => {
     it('should emit banner message', () => {
       const callback = vi.fn();
       engine.on('onBannerChange', callback);
-      engine.state.wave = 3;
+      engine.state.activeWaveNumber = 3;
 
       engine._onWaveComplete();
       expect(callback).toHaveBeenCalledWith('Wave 3 Complete!');
@@ -1440,7 +1455,7 @@ describe('GameEngine', () => {
 
     it('should award bonus currency', () => {
       engine.state.currency = 100;
-      engine.state.wave = 5;
+      engine.state.activeWaveNumber = 5;
 
       engine._onWaveComplete();
 
@@ -1450,7 +1465,7 @@ describe('GameEngine', () => {
 
     it('should award more currency on later waves', () => {
       engine.state.currency = 100;
-      engine.state.wave = 10;
+      engine.state.activeWaveNumber = 10;
 
       engine._onWaveComplete();
 
@@ -1460,7 +1475,7 @@ describe('GameEngine', () => {
 
     it('should play wave sound', () => {
       engine.audioManager = mockAudioManager;
-      engine.state.wave = 1;
+      engine.state.activeWaveNumber = 1;
 
       engine._onWaveComplete();
       expect(mockAudioManager.playSound).toHaveBeenCalledWith('wave');

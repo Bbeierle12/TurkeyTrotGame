@@ -17,7 +17,22 @@ import {
 } from './engine/GameEngine.js';
 import { Achievements } from './engine/GameConfig.js';
 import { SettingsModal } from './components/settings';
-import { getDefaultSettings, GameEngineSettings, AudioSettings } from './config/SettingsConfig';
+import { getDefaultSettings, GameEngineSettings } from './config/SettingsConfig';
+import { InputBindings, StartScreenHint, ControlHelp, AbilityHelp } from './config/InputConfig';
+import { useGameSnapshot } from './ui/hooks/useGameSnapshot';
+import { Hud } from './ui/Hud/Hud';
+import { ActionBar } from './ui/Hud/ActionBar';
+import { PerformanceHud } from './ui/Hud/PerformanceHud';
+import { StatusOverlays } from './ui/Overlays/StatusOverlays';
+import { StartScreen } from './ui/Overlays/StartScreen';
+import { CrashOverlay } from './ui/Overlays/CrashOverlay';
+import { PauseOverlay } from './ui/Overlays/PauseOverlay';
+import { GameOverOverlay } from './ui/Overlays/GameOverOverlay';
+import { PlacementFeedback } from './ui/Overlays/PlacementFeedback';
+import { ShopMenu } from './ui/Menus/ShopMenu';
+import { TurretMenu } from './ui/Menus/TurretMenu';
+import { AchievementsModal } from './ui/Menus/AchievementsModal';
+import { HelpModal } from './ui/Menus/HelpModal';
 
 // =========================
 // AUDIO MANAGER
@@ -173,6 +188,7 @@ export default function HomesteadSiege() {
   // Container ref for Three.js
   const containerRef = useRef(null);
   const engineRef = useRef(null);
+  const [engineInstance, setEngineInstance] = useState(null);
 
   // Load persistent data
   const saveData = useRef(loadSaveData());
@@ -183,15 +199,44 @@ export default function HomesteadSiege() {
   const [paused, setPaused] = useState(false);
   const [endlessMode, setEndlessMode] = useState(false);
 
-  // Game stats (updated via engine callbacks)
-  const [stats, setStats] = useState({ health: 100, currency: 100, wave: 0, enemies: 0, score: 0, houseIntegrity: 100, isInside: false });
+  // Game stats (now derived from engine snapshot)
   const [weapon, setWeapon] = useState(WeaponTypes.PITCHFORK);
   const [banner, setBanner] = useState('');
-  const [waitingForNextWave, setWaitingForNextWave] = useState(false);
   const [placingTurret, setPlacingTurret] = useState(null);
   const [lowHealth, setLowHealth] = useState(false);
   const [hitMarker, setHitMarker] = useState(null);
   const [fps, setFps] = useState(60);
+  const [perfMetrics, setPerfMetrics] = useState(null);
+  const [runtimeError, setRuntimeError] = useState(null);
+  const snapshot = useGameSnapshot(engineInstance);
+  const uiSnapshot = snapshot ?? {
+    health: 100,
+    currency: 100,
+    activeWaveNumber: 0,
+    upcomingWaveNumber: 1,
+    enemies: 0,
+    score: 0,
+    houseIntegrity: 100,
+    isInside: false,
+    canStartWave: false,
+    startWaveButtonLabel: 'Start Wave 1',
+    placingTurret: null,
+    placementFeedback: null,
+    placementCursor: null
+  };
+  const activeWaveNumber = uiSnapshot.activeWaveNumber ?? 0;
+  const upcomingWaveNumber = uiSnapshot.upcomingWaveNumber ?? 1;
+  const canStartWave = Boolean(uiSnapshot.canStartWave);
+  const startWaveLabel = uiSnapshot.startWaveButtonLabel ?? `Start Wave ${upcomingWaveNumber}`;
+  const health = uiSnapshot.health ?? 100;
+  const currency = uiSnapshot.currency ?? 100;
+  const enemies = uiSnapshot.enemies ?? 0;
+  const score = uiSnapshot.score ?? 0;
+  const houseIntegrity = uiSnapshot.houseIntegrity ?? 100;
+  const isInside = uiSnapshot.isInside ?? false;
+  const placementFeedback = uiSnapshot.placementFeedback ?? null;
+  const placementCursor = uiSnapshot.placementCursor ?? null;
+  const activePlacingTurret = uiSnapshot.placingTurret ?? placingTurret;
 
   // Menu states
   const [shopOpen, setShopOpen] = useState(false);
@@ -213,6 +258,13 @@ export default function HomesteadSiege() {
   const [unlockedAchievements, setUnlockedAchievements] = useState(saveData.current.unlockedAchievements);
   const [settings, setSettings] = useState(saveData.current.settings);
   const highScore = playerStats.highScore;
+  const uiScale = Math.min(1.3, Math.max(0.85, settings.uiScale ?? 1));
+  const uiLayerStyle = {
+    transform: `scale(${uiScale})`,
+    transformOrigin: 'top left',
+    width: `${100 / uiScale}%`,
+    height: `${100 / uiScale}%`
+  };
 
   // Update setting and save
   const updateSetting = useCallback((key, value) => {
@@ -278,6 +330,7 @@ export default function HomesteadSiege() {
     // Create and initialize game engine
     const engine = new GameEngine();
     engineRef.current = engine;
+    setEngineInstance(engine);
     engine.init(containerRef.current, audioManager);
 
     // Apply initial settings to engine
@@ -290,14 +343,14 @@ export default function HomesteadSiege() {
     engine.updateSettings(engineSettings);
 
     // Register callbacks for UI updates
-    engine.on('onStatsUpdate', setStats);
     engine.on('onWeaponChange', setWeapon);
     engine.on('onBannerChange', setBanner);
-    engine.on('onWaitingForWave', setWaitingForNextWave);
     engine.on('onLowHealth', setLowHealth);
     engine.on('onHitMarker', setHitMarker);
     engine.on('onFpsUpdate', setFps);
     engine.on('onPauseChange', setPaused);
+    engine.on('onRuntimeError', setRuntimeError);
+    const offPerf = engine.onEvent?.('PERF_UPDATED', setPerfMetrics);
 
     engine.on('onGameOver', (data) => {
       setGameOver(true);
@@ -323,13 +376,14 @@ export default function HomesteadSiege() {
 
     // Add keyboard shortcuts for UI menus
     const handleKeyDown = (e) => {
-      if (e.code === 'KeyB') { setShopOpen(p => !p); setTurretMenuOpen(false); audioManager.playSound('click'); }
-      if (e.code === 'KeyT') { setTurretMenuOpen(p => !p); setShopOpen(false); audioManager.playSound('click'); }
-      if (e.code === 'KeyQ') engine.useAbility('AIRSTRIKE');
-      if (e.code === 'KeyX') engine.useAbility('FREEZE');
-      if (e.code === 'KeyR') engine.useAbility('RAGE');
-      if (e.code === 'KeyF') engine.useAbility('REPAIR');
-      if (e.code === 'KeyC') {
+      if (InputBindings.menu.shop.includes(e.code)) { setShopOpen(p => !p); setTurretMenuOpen(false); audioManager.playSound('click'); }
+      if (InputBindings.menu.turrets.includes(e.code)) { setTurretMenuOpen(p => !p); setShopOpen(false); audioManager.playSound('click'); }
+      if (InputBindings.menu.help.includes(e.code)) { setHelpOpen(p => !p); audioManager.playSound('click'); }
+      if (InputBindings.ability.airstrike.includes(e.code)) engine.useAbility('AIRSTRIKE');
+      if (InputBindings.ability.freeze.includes(e.code)) engine.useAbility('FREEZE');
+      if (InputBindings.ability.rage.includes(e.code)) engine.useAbility('RAGE');
+      if (InputBindings.ability.repair.includes(e.code)) engine.useAbility('REPAIR');
+      if (InputBindings.camera.cycleMode.includes(e.code)) {
         const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
         const currentMode = cameraModeRef.current;
         const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
@@ -337,7 +391,7 @@ export default function HomesteadSiege() {
         engine.setCameraMode(nextMode);
         audioManager.playSound('click');
       }
-      if (e.code === 'Escape') {
+      if (InputBindings.menu.pause.includes(e.code)) {
         if (placingTurret) { setPlacingTurret(null); engine.cancelTurretPlacement(); }
         else if (settingsOpen) setSettingsOpen(false);
         else if (shopOpen) setShopOpen(false);
@@ -359,8 +413,10 @@ export default function HomesteadSiege() {
       window.removeEventListener('click', initAudio);
       window.removeEventListener('keydown', initAudio);
       window.removeEventListener('keydown', handleKeyDown);
+      offPerf?.();
       engine.dispose();
       audioManager.dispose();
+      setEngineInstance(null);
     };
   }, []);
 
@@ -374,19 +430,85 @@ export default function HomesteadSiege() {
     { id: 'upgradeHouse', name: 'Upgrade House', desc: 'Bigger house with more defenses', icon: '🏠', cost: HouseUpgrades[Object.keys(HouseUpgrades)[(engineRef.current?.getUpgrades()?.houseLevel || 0) + 1]]?.cost || 9999, max: 4, current: engineRef.current?.getUpgrades()?.houseLevel || 0, action: () => engineRef.current?.upgradeHouse() }
   ];
 
-  const weaponKeys = Object.keys(WeaponTypes);
+  const placingTurretName = activePlacingTurret ? TurretTypes[activePlacingTurret]?.name : null;
+  const handleCycleCamera = useCallback(() => {
+    const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
+    const currentMode = cameraModeRef.current;
+    const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
+    setCameraMode(nextMode);
+    engineRef.current?.setCameraMode(nextMode);
+    audioManager.playSound('click');
+  }, []);
+  const handleScreenshot = () => {
+    engineRef.current?.takeScreenshot();
+    audioManager.playSound('click');
+  };
+  const handleOpenHelp = () => {
+    setHelpOpen(true);
+    audioManager.playSound('click');
+  };
+  const handleOpenSettings = () => {
+    setSettingsOpen(true);
+    audioManager.playSound('click');
+  };
+  const handleOpenShop = () => {
+    setShopOpen(true);
+    audioManager.playSound('click');
+  };
+  const handleOpenTurretMenu = () => {
+    setTurretMenuOpen(true);
+    audioManager.playSound('click');
+  };
+  const handleOpenAchievements = () => {
+    setAchievementsOpen(true);
+    audioManager.playSound('click');
+  };
+  const handleCloseShop = () => {
+    setShopOpen(false);
+    audioManager.playSound('click');
+  };
+  const handleCloseTurretMenu = () => {
+    setTurretMenuOpen(false);
+    audioManager.playSound('click');
+  };
+  const handleCloseHelp = () => {
+    setHelpOpen(false);
+    audioManager.playSound('click');
+  };
+  const handleCloseAchievements = () => {
+    setAchievementsOpen(false);
+    audioManager.playSound('click');
+  };
+  const handleSelectTurret = (key) => {
+    engineRef.current?.startTurretPlacement(key);
+    setPlacingTurret(key);
+    setTurretMenuOpen(false);
+  };
 
   // Start game handler
   const startGame = (endless) => {
     setEndlessMode(endless);
     setStarted(true);
     setGameOver(false);
+    setRuntimeError(null);
+    engineRef.current?.clearRuntimeError?.();
     engineRef.current?.startGame(endless);
   };
 
   // Restart handler
   const restartGame = () => {
     setGameOver(false);
+    setRuntimeError(null);
+    engineRef.current?.clearRuntimeError?.();
+    engineRef.current?.startGame(endlessMode);
+  };
+
+  const handleCrashReset = () => {
+    setRuntimeError(null);
+    setGameOver(false);
+    setPaused(false);
+    setStarted(true);
+    engineRef.current?.recoverFromCrash?.();
     engineRef.current?.startGame(endlessMode);
   };
 
@@ -395,375 +517,148 @@ export default function HomesteadSiege() {
       {/* Three.js Canvas Container */}
       <div ref={containerRef} className="absolute inset-0" />
 
-      {/* HUD - Only show when game started */}
-      {started && !gameOver && (
-        <>
-          {/* Top HUD */}
-          <div className="absolute top-4 left-4 right-4 flex justify-between items-start pointer-events-none">
-            {/* Left stats - Vitals Panel */}
-            <div className="bg-black/60 backdrop-blur rounded-xl p-4 space-y-3 pointer-events-auto min-w-[200px]">
-              {/* Player Health */}
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">❤️</span>
-                <div className="flex-1">
-                  <div className="h-4 bg-gray-700 rounded-full overflow-hidden">
-                    <div className={`h-full transition-all rounded-full ${lowHealth ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} style={{ width: `${stats.health}%` }} />
-                  </div>
-                </div>
-                <span className="text-white font-bold min-w-[3rem] text-right">{stats.health}%</span>
-              </div>
-              
-              {/* House Integrity */}
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🏠</span>
-                <div className="flex-1">
-                  <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
-                    <div className={`h-full transition-all rounded-full ${stats.houseIntegrity < 25 ? 'bg-red-500' : stats.houseIntegrity < 50 ? 'bg-orange-500' : 'bg-amber-600'}`} style={{ width: `${stats.houseIntegrity}%` }} />
-                  </div>
-                </div>
-                <span className="text-white text-sm min-w-[3rem] text-right">{stats.houseIntegrity}%</span>
-              </div>
-              
-              {/* Currency */}
-              <div className="flex items-center gap-3 pt-1 border-t border-gray-700">
-                <span className="text-2xl">🌽</span>
-                <span className="text-yellow-400 font-bold text-xl">{stats.currency}</span>
-                <span className="text-yellow-600 text-sm">corn</span>
-                {stats.isInside && <span className="ml-auto text-green-400 text-xs font-bold bg-green-900/50 px-2 py-0.5 rounded">INSIDE</span>}
-              </div>
-            </div>
+      <div className="absolute inset-0" style={uiLayerStyle}>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/25 pointer-events-none" />
 
-            {/* Center wave info */}
-            <div className="bg-black/60 backdrop-blur rounded-xl px-6 py-3 text-center">
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-orange-400 font-bold text-lg">Wave {stats.wave}</span>
-                {endlessMode && <span className="text-purple-400 text-sm">♾️</span>}
-              </div>
-              <div className="text-gray-400 text-sm">🧟 {stats.enemies} remaining</div>
-              <div className="text-white text-sm">⭐ {stats.score}</div>
-            </div>
+        {/* HUD - Only show when game started */}
+        {started && !gameOver && (
+          <Hud
+            health={health}
+            lowHealth={lowHealth}
+            houseIntegrity={houseIntegrity}
+            currency={currency}
+            isInside={isInside}
+            activeWaveNumber={activeWaveNumber}
+            endlessMode={endlessMode}
+            enemies={enemies}
+            score={score}
+            showFps={settings.showFps}
+            fps={fps}
+            cameraMode={cameraMode}
+            hitMarker={hitMarker}
+            onCycleCamera={handleCycleCamera}
+            onScreenshot={handleScreenshot}
+            onOpenHelp={handleOpenHelp}
+            onOpenSettings={handleOpenSettings}
+          />
+        )}
 
-            {/* Right buttons */}
-            <div className="flex gap-2 pointer-events-auto">
-              {settings.showFps && <div className="bg-black/60 backdrop-blur rounded-xl px-3 py-2 text-green-400 text-sm">{fps} FPS</div>}
-              <button onClick={() => { const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON']; const next = modes[(modes.indexOf(cameraMode) + 1) % modes.length]; setCameraMode(next); engineRef.current?.setCameraMode(next); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Change Camera (C)">
-                <span>📷</span>
-              </button>
-              <button onClick={() => { engineRef.current?.takeScreenshot(); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Screenshot">
-                <span>🖼️</span>
-              </button>
-              <button onClick={() => { setHelpOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Help">❓</button>
-              <button onClick={() => { setSettingsOpen(true); audioManager.playSound('click'); }} className="bg-black/60 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition" title="Settings">⚙️</button>
-            </div>
-          </div>
+        <PerformanceHud
+          metrics={perfMetrics}
+          isVisible={Boolean(settings.showPerfHud)}
+        />
 
-          {/* Hit marker */}
-          {hitMarker && (
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-              <div className={`text-4xl ${hitMarker === 'kill' ? 'text-red-500' : 'text-white'}`}>✕</div>
-            </div>
-          )}
+        {/* Action bar */}
+        {started && !gameOver && (
+          <ActionBar
+            weaponTypes={WeaponTypes}
+            weapon={weapon}
+            onSelectWeapon={(key) => engineRef.current?.setWeapon(key)}
+            onOpenTurretMenu={handleOpenTurretMenu}
+            onOpenShop={handleOpenShop}
+            placingTurretName={placingTurretName}
+          />
+        )}
 
-          {/* Camera mode indicator */}
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/40 rounded-lg px-3 py-1 text-gray-400 text-xs pointer-events-none">
-            {cameraMode} (C to change)
-          </div>
-        </>
-      )}
+        <PlacementFeedback
+          feedback={placementFeedback}
+          cursor={placementCursor}
+          isVisible={Boolean(activePlacingTurret) && started && !gameOver}
+          uiScale={uiScale}
+        />
 
-      {/* Weapon bar */}
-      {started && !gameOver && (
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
-          {weaponKeys.map((key, i) => {
-            const wp = WeaponTypes[key];
-            const isActive = weapon.name === wp.name;
-            return (
-              <button key={key} onClick={() => engineRef.current?.setWeapon(key)}
-                className={`relative bg-black/70 backdrop-blur rounded-xl p-3 transition-all ${isActive ? 'ring-2 ring-yellow-400 scale-110 bg-black/90' : 'hover:bg-black/80'}`}>
-                <div className="text-2xl">{wp.icon}</div>
-                <div className={`text-xs ${isActive ? 'text-yellow-400' : 'text-gray-400'}`}>{i + 1}</div>
-                {isActive && <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-pulse" />}
-              </button>
-            );
-          })}
-          <div className="w-px bg-gray-600 mx-1" />
-          <button onClick={() => { setTurretMenuOpen(true); audioManager.playSound('click'); }}
-            className="bg-black/70 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition">
-            <div className="text-2xl">🗼</div>
-            <div className="text-xs text-gray-400">T</div>
-          </button>
-          <button onClick={() => { setShopOpen(true); audioManager.playSound('click'); }}
-            className="bg-black/70 backdrop-blur rounded-xl p-3 hover:bg-black/80 transition">
-            <div className="text-2xl">🛒</div>
-            <div className="text-xs text-gray-400">B</div>
-          </button>
-        </div>
-      )}
+        <StatusOverlays
+          banner={banner}
+          showStartWave={canStartWave && !gameOver && started}
+          startWaveLabel={startWaveLabel}
+          onStartWave={() => engineRef.current?.startWave()}
+        />
 
-      {/* Current weapon info */}
-      {started && !gameOver && (
-        <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur rounded-lg px-4 py-2 text-center pointer-events-none">
-          <div className="text-white font-bold">{weapon.name}</div>
-          <div className="text-gray-400 text-xs">{weapon.description}</div>
-        </div>
-      )}
+        {/* Start screen */}
+        {!started && (
+          <StartScreen
+            highScore={highScore}
+            playerStats={playerStats}
+            unlockedCount={unlockedAchievements.length}
+            achievementCount={Object.keys(Achievements).length}
+            controlsHint={StartScreenHint}
+            onStartGame={startGame}
+            onOpenAchievements={handleOpenAchievements}
+          />
+        )}
 
-      {/* Placing turret indicator */}
-      {placingTurret && (
-        <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2 bg-green-600/80 backdrop-blur rounded-lg px-4 py-2 text-white text-sm">
-          Click to place {TurretTypes[placingTurret]?.name} - Right-click or ESC to cancel
-        </div>
-      )}
+        {/* Shop modal */}
+        {shopOpen && (
+          <ShopMenu
+            currency={currency}
+            shopItems={shopItems}
+            onClose={handleCloseShop}
+          />
+        )}
 
-      {/* Banner */}
-      {banner && (
-        <div className="absolute top-1/3 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-          <div className={`text-5xl font-black text-white text-center drop-shadow-lg animate-bounce ${banner.includes('BOSS') ? 'text-red-500' : banner.includes('Complete') ? 'text-green-400' : ''}`}
-            style={{ textShadow: '0 0 20px rgba(0,0,0,0.8), 0 0 40px rgba(255,200,100,0.5)' }}>
-            {banner}
-          </div>
-        </div>
-      )}
+        {/* Turret menu */}
+        {turretMenuOpen && (
+          <TurretMenu
+            currency={currency}
+            turretTypes={TurretTypes}
+            onSelectTurret={handleSelectTurret}
+            onClose={handleCloseTurretMenu}
+          />
+        )}
 
-      {/* Next Wave Button */}
-      {waitingForNextWave && !gameOver && started && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30">
-          <button onClick={() => engineRef.current?.startWave()}
-            className="bg-gradient-to-r from-green-500 to-emerald-600 text-white text-2xl font-bold px-10 py-5 rounded-xl hover:scale-110 transition-all shadow-2xl animate-pulse">
-            Start Wave {stats.wave + 1}
-          </button>
-        </div>
-      )}
+        {/* Settings modal */}
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          onSettingChange={updateSetting}
+          onBatchSettingChange={updateBatchSettings}
+          onPlaySound={(sound) => audioManager.playSound(sound)}
+        />
 
-      {/* Start screen */}
-      {!started && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center">
-          <div className="text-6xl mb-4">🧟🏠🔱</div>
-          <h1 className="text-5xl font-black text-white mb-2" style={{ textShadow: '0 0 20px rgba(100,150,255,0.8)' }}>Homestead Siege</h1>
-          <p className="text-gray-400 mb-4 text-lg">Defend your barn from the zombie horde!</p>
+        {/* Achievements modal */}
+        {achievementsOpen && (
+          <AchievementsModal
+            achievements={Achievements}
+            unlockedAchievements={unlockedAchievements}
+            onClose={handleCloseAchievements}
+          />
+        )}
 
-          <div className="bg-black/50 rounded-xl px-6 py-3 mb-6 flex gap-6 text-sm">
-            <div className="text-center">
-              <div className="text-yellow-400 font-bold text-xl">{highScore}</div>
-              <div className="text-gray-500">High Score</div>
-            </div>
-            <div className="text-center">
-              <div className="text-orange-400 font-bold text-xl">{playerStats.highestWave}</div>
-              <div className="text-gray-500">Best Wave</div>
-            </div>
-            <div className="text-center">
-              <div className="text-red-400 font-bold text-xl">{playerStats.totalKills}</div>
-              <div className="text-gray-500">Total Kills</div>
-            </div>
-            <div className="text-center">
-              <div className="text-purple-400 font-bold text-xl">{playerStats.gamesPlayed}</div>
-              <div className="text-gray-500">Games</div>
-            </div>
-          </div>
+        {/* Help modal */}
+        {helpOpen && (
+          <HelpModal
+            controls={ControlHelp}
+            abilities={AbilityHelp}
+            onClose={handleCloseHelp}
+          />
+        )}
 
-          <div className="flex gap-4 mb-8">
-            <button onClick={() => startGame(false)}
-              className="bg-gradient-to-r from-orange-500 to-red-500 text-white text-xl font-bold px-10 py-4 rounded-xl hover:scale-105 transition shadow-lg">
-              Normal Mode
-            </button>
-            <button onClick={() => startGame(true)}
-              className="bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-xl font-bold px-10 py-4 rounded-xl hover:scale-105 transition shadow-lg">
-              Endless Mode
-            </button>
-          </div>
+        <CrashOverlay
+          runtimeError={runtimeError}
+          onReset={handleCrashReset}
+          onReload={() => window.location.reload()}
+        />
 
-          <div className="text-gray-500 text-sm mb-4">
-            WASD: Move - Mouse: Aim/Shoot - 1-4: Weapons - Q/E/R/F: Abilities
-          </div>
-          <div className="flex gap-4">
-            <button onClick={() => { setAchievementsOpen(true); audioManager.playSound('click'); }}
-              className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition">
-              Achievements ({unlockedAchievements.length}/{Object.keys(Achievements).length})
-            </button>
-          </div>
-        </div>
-      )}
+        <PauseOverlay
+          isVisible={paused && !settingsOpen && !shopOpen && !turretMenuOpen && !helpOpen && !achievementsOpen}
+          onResume={() => engineRef.current?.togglePause()}
+          onOpenSettings={handleOpenSettings}
+          onOpenHelp={handleOpenHelp}
+          onQuitToMenu={() => { setStarted(false); setPaused(false); audioManager.stopMusic(); audioManager.playSound('click'); }}
+        />
 
-      {/* Shop modal */}
-      {shopOpen && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20">
-          <div className="bg-gray-900 rounded-2xl p-6 max-w-md w-full mx-4 border border-gray-700">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-white">Shop</h2>
-              <div className="text-yellow-400 font-bold">{stats.currency}</div>
-            </div>
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {shopItems.map(item => {
-                const canAfford = stats.currency >= item.cost;
-                const maxed = item.max !== undefined && item.current >= item.max;
-                return (
-                  <button key={item.id} onClick={() => { if (canAfford && !maxed) item.action(); }} disabled={!canAfford || maxed}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${maxed ? 'bg-gray-800 opacity-50' : canAfford ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-800/50 opacity-50'}`}>
-                    <span className="text-3xl">{item.icon}</span>
-                    <div className="flex-1 text-left">
-                      <div className="text-white font-bold">{item.name}</div>
-                      <div className="text-gray-400 text-sm">{item.desc}</div>
-                    </div>
-                    <div className={`font-bold ${maxed ? 'text-green-400' : canAfford ? 'text-yellow-400' : 'text-red-400'}`}>
-                      {maxed ? 'MAX' : item.cost}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={() => { setShopOpen(false); audioManager.playSound('click'); }}
-              className="w-full mt-4 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition">Close (B or ESC)</button>
-          </div>
-        </div>
-      )}
-
-      {/* Turret menu */}
-      {turretMenuOpen && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20">
-          <div className="bg-gray-900 rounded-2xl p-6 max-w-md w-full mx-4 border border-gray-700">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-white">Turrets</h2>
-              <div className="text-yellow-400 font-bold">{stats.currency}</div>
-            </div>
-            <div className="space-y-3">
-              {Object.entries(TurretTypes).map(([key, turret]) => {
-                const canAfford = stats.currency >= turret.cost;
-                return (
-                  <button key={key} onClick={() => { if (canAfford) { engineRef.current?.startTurretPlacement(key); setPlacingTurret(key); setTurretMenuOpen(false); } }}
-                    disabled={!canAfford}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${canAfford ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-800/50 opacity-50'}`}>
-                    <span className="text-3xl">{turret.icon}</span>
-                    <div className="flex-1 text-left">
-                      <div className="text-white font-bold">{turret.name}</div>
-                      <div className="text-gray-400 text-sm">{turret.description}</div>
-                      <div className="text-gray-500 text-xs">DMG: {turret.damage} - Range: {turret.range} - Rate: {turret.fireRate}/s</div>
-                    </div>
-                    <div className={`font-bold ${canAfford ? 'text-yellow-400' : 'text-red-400'}`}>{turret.cost}</div>
-                  </button>
-                );
-              })}
-            </div>
-            <button onClick={() => { setTurretMenuOpen(false); audioManager.playSound('click'); }}
-              className="w-full mt-4 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition">Close (T or ESC)</button>
-          </div>
-        </div>
-      )}
-
-      {/* Settings modal */}
-      <SettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        settings={settings}
-        onSettingChange={updateSetting}
-        onBatchSettingChange={updateBatchSettings}
-        onPlaySound={(sound) => audioManager.playSound(sound)}
-      />
-
-      {/* Achievements modal */}
-      {achievementsOpen && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-30">
-          <div className="bg-gray-900 rounded-2xl p-6 max-w-lg w-full mx-4 border border-gray-700 max-h-[80vh] overflow-hidden flex flex-col">
-            <h2 className="text-2xl font-bold text-white mb-4">Achievements ({unlockedAchievements.length}/{Object.keys(Achievements).length})</h2>
-            <div className="space-y-2 overflow-y-auto flex-1">
-              {Object.entries(Achievements).map(([key, ach]) => {
-                const unlocked = unlockedAchievements.includes(key);
-                return (
-                  <div key={key} className={`flex items-center gap-3 p-3 rounded-xl ${unlocked ? 'bg-yellow-900/30' : 'bg-gray-800/50'}`}>
-                    <span className={`text-3xl ${unlocked ? '' : 'grayscale opacity-50'}`}>{ach.icon}</span>
-                    <div className="flex-1">
-                      <div className={`font-bold ${unlocked ? 'text-yellow-400' : 'text-gray-500'}`}>{ach.name}</div>
-                      <div className={`text-sm ${unlocked ? 'text-gray-300' : 'text-gray-600'}`}>{ach.description}</div>
-                    </div>
-                    {unlocked && <span className="text-green-400">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-            <button onClick={() => { setAchievementsOpen(false); audioManager.playSound('click'); }}
-              className="w-full mt-4 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition">Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* Help modal */}
-      {helpOpen && (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-30">
-          <div className="bg-gray-900 rounded-2xl p-6 max-w-lg w-full mx-4 border border-gray-700 max-h-[80vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold text-white mb-4">How to Play</h2>
-            <div className="space-y-4 text-gray-300">
-              <div>
-                <h3 className="text-yellow-400 font-bold mb-1">Objective</h3>
-                <p>Survive the zombie horde! Hide in your house for protection, but they can break in!</p>
-              </div>
-              <div>
-                <h3 className="text-yellow-400 font-bold mb-1">Controls</h3>
-                <div className="text-sm space-y-1">
-                  <p><span className="text-white">WASD</span> - Move</p>
-                  <p><span className="text-white">Mouse</span> - Aim & Shoot</p>
-                  <p><span className="text-white">E</span> - Enter/Exit house</p>
-                  <p><span className="text-white">1-4</span> - Switch weapons</p>
-                  <p><span className="text-white">Q/X/R/F</span> - Use abilities</p>
-                  <p><span className="text-white">T</span> - Turret menu</p>
-                  <p><span className="text-white">B</span> - Shop</p>
-                  <p><span className="text-white">C</span> - Cycle camera mode</p>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-yellow-400 font-bold mb-1">Abilities</h3>
-                <div className="text-sm space-y-1">
-                  <p><span className="text-white">Q - Artillery Strike</span> - Airstrike at cursor</p>
-                  <p><span className="text-white">X - Frost Nova</span> - Freeze all enemies</p>
-                  <p><span className="text-white">R - Survival Fury</span> - 2x damage & fire rate</p>
-                  <p><span className="text-white">F - Emergency Repair</span> - Repair doors/windows</p>
-                </div>
-              </div>
-            </div>
-            <button onClick={() => { setHelpOpen(false); audioManager.playSound('click'); }}
-              className="w-full mt-6 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition">Got it!</button>
-          </div>
-        </div>
-      )}
-
-      {/* Pause overlay */}
-      {paused && !settingsOpen && !shopOpen && !turretMenuOpen && !helpOpen && !achievementsOpen && (
-        <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20">
-          <div className="text-5xl font-black text-white mb-8">PAUSED</div>
-          <div className="space-y-3">
-            <button onClick={() => engineRef.current?.togglePause()}
-              className="block w-48 bg-green-600 text-white py-3 rounded-lg hover:bg-green-500 transition text-lg font-bold">Resume</button>
-            <button onClick={() => { setSettingsOpen(true); audioManager.playSound('click'); }}
-              className="block w-48 bg-gray-600 text-white py-3 rounded-lg hover:bg-gray-500 transition text-lg">Settings</button>
-            <button onClick={() => { setHelpOpen(true); audioManager.playSound('click'); }}
-              className="block w-48 bg-gray-600 text-white py-3 rounded-lg hover:bg-gray-500 transition text-lg">Help</button>
-            <button onClick={() => { setStarted(false); setPaused(false); audioManager.stopMusic(); audioManager.playSound('click'); }}
-              className="block w-48 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-500 transition text-lg">Quit to Menu</button>
-          </div>
-        </div>
-      )}
-
-      {/* Game over */}
-      {gameOver && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40">
-          <div className="text-6xl mb-4">💀🧟</div>
-          <h1 className="text-5xl font-black text-red-500 mb-2">GAME OVER</h1>
-          {stats.score >= highScore && stats.score > 0 && (
-            <div className="text-2xl text-yellow-400 font-bold mb-2 animate-pulse">NEW HIGH SCORE!</div>
-          )}
-          <div className="text-3xl text-white mb-2">Score: {stats.score}</div>
-          {highScore > 0 && stats.score < highScore && (
-            <div className="text-lg text-gray-500 mb-2">High Score: {highScore}</div>
-          )}
-          <div className="text-xl text-gray-400 mb-2">Wave {stats.wave} {endlessMode && '(Endless)'}</div>
-          <div className="space-y-3 mt-6">
-            <button onClick={restartGame}
-              className="block w-48 bg-gradient-to-r from-orange-500 to-red-500 text-white py-3 rounded-lg hover:scale-105 transition text-lg font-bold">Play Again</button>
-            <button onClick={() => { setAchievementsOpen(true); audioManager.playSound('click'); }}
-              className="block w-48 bg-gray-600 text-white py-3 rounded-lg hover:bg-gray-500 transition">Achievements</button>
-            <button onClick={() => { setGameOver(false); setStarted(false); audioManager.playSound('click'); }}
-              className="block w-48 bg-gray-700 text-white py-3 rounded-lg hover:bg-gray-600 transition">Main Menu</button>
-          </div>
-        </div>
-      )}
+        <GameOverOverlay
+          isVisible={gameOver}
+          score={score}
+          highScore={highScore}
+          activeWaveNumber={activeWaveNumber}
+          endlessMode={endlessMode}
+          onRestart={restartGame}
+          onOpenAchievements={handleOpenAchievements}
+          onMainMenu={() => { setGameOver(false); setStarted(false); audioManager.playSound('click'); }}
+        />
+      </div>
     </div>
   );
 }

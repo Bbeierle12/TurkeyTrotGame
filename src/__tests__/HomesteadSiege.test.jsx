@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import React from 'react';
 
@@ -27,32 +27,45 @@ const localStorageMock = (() => {
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
 // Mock Tone.js
-vi.mock('tone', () => ({
-  start: vi.fn(() => Promise.resolve()),
-  Gain: vi.fn(() => ({ toDestination: vi.fn(() => ({})), connect: vi.fn(() => ({})), gain: { value: 1 } })),
-  MetalSynth: vi.fn(() => ({ connect: vi.fn(() => ({})), triggerAttackRelease: vi.fn() })),
-  MembraneSynth: vi.fn(() => ({ connect: vi.fn(() => ({})), triggerAttackRelease: vi.fn() })),
-  Synth: vi.fn(() => ({ connect: vi.fn(() => ({})), triggerAttackRelease: vi.fn() })),
-  NoiseSynth: vi.fn(() => ({ connect: vi.fn(() => ({})), triggerAttackRelease: vi.fn() })),
-  PolySynth: vi.fn(() => ({ connect: vi.fn(() => ({})), triggerAttackRelease: vi.fn() })),
-  MonoSynth: vi.fn(() => ({ connect: vi.fn(() => ({})), triggerAttackRelease: vi.fn(), volume: { value: 0 } })),
-  Loop: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), dispose: vi.fn() })),
-  Transport: { start: vi.fn(), stop: vi.fn(), bpm: { value: 100 } },
-  now: vi.fn(() => 0),
-  default: {
-    start: vi.fn(() => Promise.resolve()),
-    Gain: vi.fn(() => ({ toDestination: vi.fn(() => ({})), connect: vi.fn(() => ({})), gain: { value: 1 } }))
-  }
-}));
+vi.mock('tone', async () => await import('../engine/__tests__/__mocks__/tone.js'));
 
 // Mock GameEngine - needs to be a constructor function
 let mockEngineCallbacks = {};
+let mockEngineEvents = {};
+let mockEngineSnapshot = null;
+
+const emitMockEvent = (event, detail) => {
+  const handlers = mockEngineEvents[event] || [];
+  handlers.forEach((handler) => handler(detail));
+};
+
+const wrapWithAct = (callback) => (...args) => {
+  act(() => {
+    callback(...args);
+  });
+};
+
+const updateSnapshot = (partial) => {
+  mockEngineSnapshot = { ...mockEngineSnapshot, ...partial };
+  emitMockEvent('STATE_CHANGED', mockEngineSnapshot);
+};
 const createMockEngine = () => ({
   init: vi.fn(),
   dispose: vi.fn(),
   on: vi.fn((event, callback) => {
-    mockEngineCallbacks[event] = callback;
+    mockEngineCallbacks[event] = wrapWithAct(callback);
   }),
+  onEvent: vi.fn((event, handler) => {
+    if (!mockEngineEvents[event]) {
+      mockEngineEvents[event] = [];
+    }
+    const wrapped = wrapWithAct(handler);
+    mockEngineEvents[event].push(wrapped);
+    return () => {
+      mockEngineEvents[event] = mockEngineEvents[event].filter((h) => h !== wrapped);
+    };
+  }),
+  getSnapshot: vi.fn(() => mockEngineSnapshot),
   startGame: vi.fn(),
   startWave: vi.fn(),
   togglePause: vi.fn(),
@@ -117,6 +130,22 @@ describe('HomesteadSiege Component', () => {
     vi.clearAllMocks();
     localStorageMock.clear();
     mockEngineCallbacks = {};
+    mockEngineEvents = {};
+    mockEngineSnapshot = {
+      health: 100,
+      currency: 100,
+      activeWaveNumber: 0,
+      upcomingWaveNumber: 1,
+      enemies: 0,
+      score: 0,
+      houseIntegrity: 100,
+      isInside: false,
+      canStartWave: false,
+      startWaveButtonLabel: 'Start Wave 1',
+      placingTurret: null,
+      placementFeedback: null,
+      placementCursor: null
+    };
     mockEngine = null;
   });
 
@@ -272,6 +301,24 @@ describe('HomesteadSiege Component', () => {
     });
   });
 
+  describe('Placement Feedback', () => {
+    it('should show placement tooltip when invalid', async () => {
+      render(<HomesteadSiege />);
+      fireEvent.click(screen.getByText('Normal Mode'));
+
+      updateSnapshot({
+        placingTurret: 'BASIC',
+        placementFeedback: {
+          ok: false,
+          reasons: [{ code: 'TOO_CLOSE', message: 'Too close to barn' }]
+        },
+        placementCursor: { x: 120, y: 140 }
+      });
+
+      expect(await screen.findByText('Too close to barn')).toBeInTheDocument();
+    });
+  });
+
   describe('Settings Modal', () => {
     beforeEach(() => {
       render(<HomesteadSiege />);
@@ -284,16 +331,19 @@ describe('HomesteadSiege Component', () => {
     });
 
     it('should display volume controls', () => {
+      fireEvent.click(screen.getByText('Audio'));
       expect(screen.getByText('Master Volume')).toBeInTheDocument();
       expect(screen.getByText('SFX Volume')).toBeInTheDocument();
       expect(screen.getByText('Music Volume')).toBeInTheDocument();
     });
 
     it('should display mute toggle', () => {
+      fireEvent.click(screen.getByText('Audio'));
       expect(screen.getByText('Mute All')).toBeInTheDocument();
     });
 
     it('should display FPS toggle', () => {
+      fireEvent.click(screen.getByText('Graphics'));
       expect(screen.getByText('Show FPS')).toBeInTheDocument();
     });
   });
@@ -386,11 +436,11 @@ describe('HomesteadSiege Component', () => {
     });
 
     it('should register callbacks on engine', () => {
-      expect(mockEngine.on).toHaveBeenCalledWith('onStatsUpdate', expect.any(Function));
       expect(mockEngine.on).toHaveBeenCalledWith('onWeaponChange', expect.any(Function));
       expect(mockEngine.on).toHaveBeenCalledWith('onBannerChange', expect.any(Function));
       expect(mockEngine.on).toHaveBeenCalledWith('onGameOver', expect.any(Function));
       expect(mockEngine.on).toHaveBeenCalledWith('onWaveComplete', expect.any(Function));
+      expect(mockEngine.onEvent).toHaveBeenCalledWith('STATE_CHANGED', expect.any(Function));
     });
   });
 
@@ -498,18 +548,16 @@ describe('Game Over Screen', () => {
     render(<HomesteadSiege />);
     fireEvent.click(screen.getByText('Normal Mode'));
 
-    // Update stats first
-    if (mockEngineCallbacks.onStatsUpdate) {
-      mockEngineCallbacks.onStatsUpdate({
-        health: 0,
-        currency: 500,
-        wave: 5,
-        enemies: 0,
-        score: 1500,
-        houseIntegrity: 50,
-        isInside: false
-      });
-    }
+    updateSnapshot({
+      health: 0,
+      currency: 500,
+      activeWaveNumber: 5,
+      upcomingWaveNumber: 6,
+      enemies: 0,
+      score: 1500,
+      houseIntegrity: 50,
+      isInside: false
+    });
 
     // Trigger game over
     if (mockEngineCallbacks.onGameOver) {
@@ -588,5 +636,210 @@ describe('Pause Screen', () => {
     });
 
     expect(mockEngine.togglePause).toHaveBeenCalled();
+  });
+});
+
+describe('Wave Label Consistency (Single Source of Truth)', () => {
+  /**
+   * These tests verify that the UI wave labels derive from the engine's
+   * single source of truth (activeWaveNumber and upcomingWaveNumber).
+   * The UI should never calculate or derive wave numbers independently.
+   */
+
+  it('should display Start Wave button with upcomingWaveNumber from engine', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 100,
+      currency: 100,
+      activeWaveNumber: 0,
+      upcomingWaveNumber: 1,
+      enemies: 0,
+      score: 0,
+      houseIntegrity: 100,
+      isInside: false,
+      canStartWave: true,
+      startWaveButtonLabel: 'Start Wave 1'
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Start Wave 1')).toBeInTheDocument();
+    });
+  });
+
+  it('should update Start Wave button when engine sends new upcomingWaveNumber', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 100,
+      currency: 200,
+      activeWaveNumber: 1,
+      upcomingWaveNumber: 2,
+      enemies: 0,
+      score: 100,
+      houseIntegrity: 100,
+      isInside: false,
+      canStartWave: true,
+      startWaveButtonLabel: 'Start Wave 2'
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Start Wave 2')).toBeInTheDocument();
+    });
+  });
+
+  it('should display wave number during active wave from engine stats', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 80,
+      currency: 150,
+      activeWaveNumber: 3,
+      upcomingWaveNumber: 4,
+      enemies: 5,
+      score: 300,
+      houseIntegrity: 90,
+      isInside: false,
+      canStartWave: false
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Wave 3')).toBeInTheDocument();
+    });
+  });
+
+  it('should not show Start Wave button during active wave', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 100,
+      currency: 100,
+      activeWaveNumber: 1,
+      upcomingWaveNumber: 2,
+      enemies: 10,
+      score: 0,
+      houseIntegrity: 100,
+      isInside: false,
+      canStartWave: false
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Start Wave/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('should show wave display matching engine wave number across multiple waves', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    // Test that UI reflects whatever the engine sends for waves 1-5
+    for (let wave = 1; wave <= 5; wave++) {
+      updateSnapshot({
+        health: 100,
+        currency: wave * 50,
+        activeWaveNumber: wave,
+        upcomingWaveNumber: wave + 1,
+        enemies: 10 - wave,
+        score: wave * 100,
+        houseIntegrity: 100,
+        isInside: false
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(`Wave ${wave}`)).toBeInTheDocument();
+      });
+    }
+  });
+
+  it('should update wave button label when transitioning from wave complete to prep', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 90,
+      currency: 150,
+      activeWaveNumber: 1,
+      upcomingWaveNumber: 2,
+      enemies: 0,
+      score: 150,
+      houseIntegrity: 95,
+      isInside: false,
+      canStartWave: true,
+      startWaveButtonLabel: 'Start Wave 2'
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Start Wave 2')).toBeInTheDocument();
+    });
+
+    updateSnapshot({
+      health: 80,
+      currency: 250,
+      activeWaveNumber: 2,
+      upcomingWaveNumber: 3,
+      enemies: 0,
+      score: 300,
+      houseIntegrity: 85,
+      isInside: false,
+      canStartWave: true,
+      startWaveButtonLabel: 'Start Wave 3'
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Start Wave 3')).toBeInTheDocument();
+    });
+  });
+
+  it('should call engine.startWave when Start Wave button is clicked', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 100,
+      currency: 100,
+      activeWaveNumber: 0,
+      upcomingWaveNumber: 1,
+      enemies: 0,
+      score: 0,
+      houseIntegrity: 100,
+      isInside: false,
+      canStartWave: true,
+      startWaveButtonLabel: 'Start Wave 1'
+    });
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByText('Start Wave 1'));
+    });
+
+    expect(mockEngine.startWave).toHaveBeenCalled();
+  });
+
+  it('should show game over wave number from engine stats', async () => {
+    render(<HomesteadSiege />);
+    fireEvent.click(screen.getByText('Normal Mode'));
+
+    updateSnapshot({
+      health: 0,
+      currency: 500,
+      activeWaveNumber: 7,
+      upcomingWaveNumber: 8,
+      enemies: 3,
+      score: 1500,
+      houseIntegrity: 0,
+      isInside: false
+    });
+
+    // Trigger game over
+    if (mockEngineCallbacks.onGameOver) {
+      mockEngineCallbacks.onGameOver({ score: 1500, wave: 7 });
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText('Wave 7')).toBeInTheDocument();
+    });
   });
 });

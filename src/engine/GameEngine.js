@@ -10,6 +10,12 @@ import { SpatialHashGrid2D } from './SpatialHashGrid2D.js';
 import { BuildingValidator } from './BuildingValidator.js';
 import { DamageManager, DamageVisualizer, DamageType } from './DamageManager.js';
 import { StabilityOptimizer } from './StabilityOptimizer.js';
+import { RuntimeDiagnostics } from './RuntimeDiagnostics.js';
+import { GamePhase, GamePhaseTransitions } from './GamePhase.js';
+import { WaveManager } from './waves/WaveManager.js';
+import { EventBus } from './EventBus.js';
+import { disposeObject, disposeScene } from './graphics/disposeThree.js';
+import { InputBindings } from '../config/InputConfig.js';
 import {
   WeaponTypes,
   ZombieTypes,
@@ -21,13 +27,16 @@ import {
 // Re-export config for convenience
 export { WeaponTypes, ZombieTypes, HouseUpgrades, TurretTypes, AbilityTypes };
 
+export { GamePhase };
+
 /**
  * Game state snapshot for serialization
  */
 export class StateSnapshot {
   constructor(state) {
     this.timestamp = Date.now();
-    this.wave = state.wave;
+    this.activeWaveNumber = state.activeWaveNumber;
+    this.wave = this.activeWaveNumber;
     this.score = state.score;
     this.currency = state.currency;
     this.barnHealth = state.barn?.health ?? 175;
@@ -61,6 +70,12 @@ export class GameEngine {
     this.camera = null;
     this.renderer = null;
     this.animationId = null;
+
+    // Crash diagnostics
+    this.runtimeDiagnostics = new RuntimeDiagnostics();
+    this.phase = GamePhase.READY;
+    this._hasCrashed = false;
+    this._phaseBeforePause = null;
 
     // Scene objects
     this.playerGroup = null;
@@ -143,7 +158,7 @@ export class GameEngine {
       turretProjectiles: [],
       turrets: [],
 
-      wave: 0,
+      activeWaveNumber: 0,
       toSpawn: 0,
       totalSpawnedThisWave: 0,
       expectedThisWave: 0,
@@ -179,11 +194,18 @@ export class GameEngine {
         houseLevel: 0
       },
 
-      placingTurret: null
+      placingTurret: null,
+      placementFeedback: null,
+      placementCursor: null
     };
 
+    this._nextStructureId = 1;
+
     // Spawn tracking
-    this.spawnedCounts = {};
+    this.waveManager = new WaveManager(this.state);
+
+    // Event bus for UI/system observers
+    this.eventBus = new EventBus();
 
     // Spatial indexing
     this.zombieGrid = new SpatialHashGrid2D(this.config.spatialCellSize);
@@ -192,7 +214,8 @@ export class GameEngine {
     // Building systems
     this.buildingValidator = new BuildingValidator({
       minDistanceFromBarn: this.config.turretMinDistance,
-      maxDistanceFromBarn: this.config.turretMaxDistance
+      maxDistanceFromBarn: this.config.turretMaxDistance,
+      barnPosition: this.state.house.pos
     });
     this.damageManager = new DamageManager(this.buildingValidator);
     this.damageVisualizer = null;
@@ -205,13 +228,36 @@ export class GameEngine {
       lastFrameTime: 0,
       avgFrameTime: 16.67,
       spatialQueries: 0,
-      fps: 60
+      fps: 60,
+      entities: {
+        zombies: 0,
+        turrets: 0,
+        projectiles: 0,
+        turretProjectiles: 0
+      },
+      renderer: null
     };
 
     // Frame timing
     this.lastTime = 0;
     this.frameCount = 0;
     this.fpsTime = 0;
+
+    this._renderFailed = false;
+
+    this._scratch = {
+      move: new THREE.Vector3(),
+      newPos: new THREE.Vector3(),
+      dir: new THREE.Vector3(),
+      yAxis: new THREE.Vector3(0, 1, 0),
+      headPos: new THREE.Vector3(),
+      lookDir: new THREE.Vector3(),
+      lookTarget: new THREE.Vector3(),
+      mouseNdc: new THREE.Vector2(),
+      intersection: new THREE.Vector3()
+    };
+    this._raycaster = new THREE.Raycaster();
+    this._groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
     // Event callbacks for React UI updates
     this.callbacks = {
@@ -227,11 +273,131 @@ export class GameEngine {
       onAbilitiesUpdate: null,
       onFpsUpdate: null,
       onWaitingForWave: null,
-      onPointerLockChange: null
+      onPointerLockChange: null,
+      onRuntimeError: null,
+      onPhaseChange: null,
+      onPerfUpdate: null
     };
 
     // Bound event handlers (for cleanup)
     this._boundHandlers = {};
+  }
+
+  // ========================================
+  // PHASE STATE MACHINE GETTERS
+  // ========================================
+
+  /**
+   * Get the currently active wave number (1-based).
+   * Returns 0 if no wave is currently active (before first wave or between waves).
+   */
+  get activeWaveNumber() {
+    return this.state.activeWaveNumber;
+  }
+
+  /**
+   * Get the upcoming wave number (1-based).
+   * This is the next wave that will start when startWave() is called.
+   */
+  get upcomingWaveNumber() {
+    return this.state.activeWaveNumber + 1;
+  }
+
+  /**
+   * Get a snapshot of the current game state for UI rendering.
+   * This provides a single source of truth for all UI wave-related displays.
+   */
+  getSnapshot() {
+    const canStartWave = this.phase === GamePhase.WAVE_PREP ||
+                         this.phase === GamePhase.WAVE_COMPLETE;
+    const houseIntegrity = this._calculateHouseIntegrity();
+
+    const activeWaveNumber = this.activeWaveNumber;
+    const upcomingWaveNumber = this.upcomingWaveNumber;
+
+    return {
+      phase: this.phase,
+      activeWaveNumber,
+      upcomingWaveNumber,
+      isWaveActive: this.phase === GamePhase.WAVE_ACTIVE,
+      isWaitingForWave: canStartWave,
+      canStartWave: canStartWave,
+      startWaveButtonLabel: `Start Wave ${upcomingWaveNumber}`,
+      // Additional state for UI
+      health: this.state.player.health,
+      maxHealth: this.state.player.maxHealth,
+      currency: this.state.currency,
+      score: this.state.score,
+      enemies: this.state.zombies.length,
+      houseIntegrity,
+      isInside: this.state.player.isInside,
+      paused: this.state.paused,
+      gameOver: this.state.gameOver,
+      placingTurret: this.state.placingTurret,
+      placementFeedback: this.state.placementFeedback,
+      placementCursor: this.state.placementCursor
+    };
+  }
+
+  /**
+   * Internal method to transition phase with event emission.
+   * @param {string} newPhase - The new GamePhase value
+   * @private
+   */
+  _setPhase(newPhase) {
+    const oldPhase = this.phase;
+    if (oldPhase === newPhase) return;
+
+    if (newPhase !== GamePhase.CRASHED) {
+      const allowed = GamePhaseTransitions[oldPhase] || [];
+      if (!allowed.includes(newPhase)) {
+        throw new Error(`Illegal phase transition: ${oldPhase} -> ${newPhase}`);
+      }
+    }
+
+    this.phase = newPhase;
+
+    if (newPhase === GamePhase.WAVE_PREP || newPhase === GamePhase.WAVE_COMPLETE) {
+      this.state.waveComplete = true;
+    } else if (newPhase === GamePhase.WAVE_ACTIVE) {
+      this.state.waveComplete = false;
+    }
+
+    if (newPhase === GamePhase.GAME_OVER) {
+      this.state.gameOver = true;
+    } else if (oldPhase === GamePhase.GAME_OVER) {
+      this.state.gameOver = false;
+    }
+
+    const phasePayload = {
+      from: oldPhase,
+      to: newPhase,
+      activeWaveNumber: this.activeWaveNumber,
+      upcomingWaveNumber: this.upcomingWaveNumber
+    };
+
+    this._emitCallback('onPhaseChange', phasePayload);
+    this._emitEvent('PHASE_CHANGED', phasePayload);
+  }
+
+  /**
+   * Check if game over conditions are met and transition to GAME_OVER phase.
+   * @private
+   */
+  _checkGameOver() {
+    if (this.state.player.health <= 0 || this.state.barn.health <= 0) {
+      this.state.gameOver = true;
+      this._setPhase(GamePhase.GAME_OVER);
+      this._emitCallback('onGameOver', {
+        score: this.state.score,
+        wave: this.activeWaveNumber
+      });
+      this._emitEvent('GAME_OVER', {
+        score: this.state.score,
+        activeWaveNumber: this.activeWaveNumber
+      });
+      this.audioManager?.playSound('gameover');
+    }
   }
 
   // ========================================
@@ -263,7 +429,7 @@ export class GameEngine {
     this._initDamageSystems();
 
     // Start the game loop
-    this._animate();
+    this._startAnimationLoop();
 
     // Handle window resize
     this._boundHandlers.resize = this._onResize.bind(this);
@@ -475,6 +641,7 @@ export class GameEngine {
     // Remove old house if exists
     if (this.houseGroup) {
       this.scene.remove(this.houseGroup);
+      disposeObject(this.houseGroup);
     }
 
     const houseKey = Object.keys(HouseUpgrades)[level] || 'BASIC';
@@ -565,6 +732,7 @@ export class GameEngine {
     this.houseGroup.position.set(houseCornerX, 0, houseCornerZ);
     this.scene.add(this.houseGroup);
     this.state.house.pos.set(houseCornerX, 0, houseCornerZ);
+    this.buildingValidator.barnPosition = this.state.house.pos;
     this.state.house.doors = this.houseDoors;
     this.state.house.windows = this.houseWindows;
   }
@@ -1058,41 +1226,43 @@ export class GameEngine {
   }
 
   _handleKey(e, down) {
-    const map = {
-      KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
-      ArrowUp: 'panUp', ArrowDown: 'panDown',
-      ArrowLeft: 'panLeft', ArrowRight: 'panRight'
-    };
+    const { movement, pan, wave, camera, weapons } = InputBindings;
 
-    if (map[e.code]) {
-      this.state.input[map[e.code]] = down;
-    }
+    if (movement.forward.includes(e.code)) this.state.input.w = down;
+    if (movement.left.includes(e.code)) this.state.input.a = down;
+    if (movement.backward.includes(e.code)) this.state.input.s = down;
+    if (movement.right.includes(e.code)) this.state.input.d = down;
+
+    if (pan.up.includes(e.code)) this.state.input.panUp = down;
+    if (pan.down.includes(e.code)) this.state.input.panDown = down;
+    if (pan.left.includes(e.code)) this.state.input.panLeft = down;
+    if (pan.right.includes(e.code)) this.state.input.panRight = down;
 
     if (down) {
       // Weapon switching
       const weaponKeys = Object.keys(WeaponTypes);
-      if (e.code === 'Digit1' || e.code === 'Numpad1') this.setWeapon(weaponKeys[0]);
-      if (e.code === 'Digit2' || e.code === 'Numpad2') this.setWeapon(weaponKeys[1]);
-      if (e.code === 'Digit3' || e.code === 'Numpad3') this.setWeapon(weaponKeys[2]);
-      if (e.code === 'Digit4' || e.code === 'Numpad4') this.setWeapon(weaponKeys[3]);
+      if (weapons.slot1.includes(e.code)) this.setWeapon(weaponKeys[0]);
+      if (weapons.slot2.includes(e.code)) this.setWeapon(weaponKeys[1]);
+      if (weapons.slot3.includes(e.code)) this.setWeapon(weaponKeys[2]);
+      if (weapons.slot4.includes(e.code)) this.setWeapon(weaponKeys[3]);
 
       // Next wave
-      if ((e.code === 'Space' || e.code === 'KeyN')) {
+      if (wave.start.includes(e.code)) {
         this.startWave();
       }
 
       // Camera rotation
-      if (e.code === 'Comma') {
+      if (camera.rotateLeft.includes(e.code)) {
         this.cameraAngle += Math.PI / 4;
         this.audioManager?.playSound('click');
       }
-      if (e.code === 'Period') {
+      if (camera.rotateRight.includes(e.code)) {
         this.cameraAngle -= Math.PI / 4;
         this.audioManager?.playSound('click');
       }
 
       // Reset camera
-      if (e.code === 'KeyZ') {
+      if (camera.reset.includes(e.code)) {
         this.panOffset.set(0, 0, 0);
         this.cameraAngle = Math.PI; // Reset to default behind-player view
         this.audioManager?.playSound('click');
@@ -1149,41 +1319,40 @@ export class GameEngine {
 
   _updateAimFromMouse(e) {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
+    const mouse = this._scratch.mouseNdc.set(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1
     );
 
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, this.camera);
+    this._raycaster.setFromCamera(mouse, this.camera);
+    const intersection = this._scratch.intersection;
 
-    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const intersection = new THREE.Vector3();
-
-    if (raycaster.ray.intersectPlane(groundPlane, intersection)) {
+    if (this._raycaster.ray.intersectPlane(this._groundPlane, intersection)) {
       this.state.aim.copy(intersection);
     }
   }
 
   _updateTurretPreview(e) {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
+    const mouse = this._scratch.mouseNdc.set(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
       -((e.clientY - rect.top) / rect.height) * 2 + 1
     );
 
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, this.camera);
+    this._raycaster.setFromCamera(mouse, this.camera);
+    const intersection = this._scratch.intersection;
 
-    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const intersection = new THREE.Vector3();
-
-    if (raycaster.ray.intersectPlane(groundPlane, intersection)) {
+    if (this._raycaster.ray.intersectPlane(this._groundPlane, intersection)) {
       this.turretPreview.position.copy(intersection);
 
       // Validate placement
-      const dist = intersection.distanceTo(this.state.house.pos);
-      const valid = dist >= this.config.turretMinDistance && dist <= this.config.turretMaxDistance;
+      const validation = this._validateTurretPlacement(intersection);
+      this.state.placementFeedback = validation;
+      this.state.placementCursor = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+      const valid = validation.ok;
 
       // Update preview color
       const color = valid ? 0x00ff00 : 0xff0000;
@@ -1219,31 +1388,150 @@ export class GameEngine {
   // GAME LOOP
   // ========================================
 
-  _animate() {
-    this.animationId = requestAnimationFrame(this._animate.bind(this));
+  _startAnimationLoop() {
+    this.lastTime = performance.now();
+    this._boundHandlers.animationLoop = this._animate.bind(this);
+    if (this.renderer && typeof this.renderer.setAnimationLoop === 'function') {
+      this._useRAF = false;
+      this.renderer.setAnimationLoop(this._boundHandlers.animationLoop);
+    } else {
+      this._useRAF = true;
+      this.animationId = requestAnimationFrame(this._boundHandlers.animationLoop);
+    }
+  }
 
-    const now = performance.now();
+  _stopAnimationLoop() {
+    this._useRAF = false;
+    if (this.renderer && typeof this.renderer.setAnimationLoop === 'function') {
+      this.renderer.setAnimationLoop(null);
+    }
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+      this.animationId = null;
+    }
+  }
+
+  _renderFallback() {
+    if (!this.renderer) return;
+    try {
+      const prevColor = new THREE.Color();
+      this.renderer.getClearColor(prevColor);
+      const prevAlpha = this.renderer.getClearAlpha?.() ?? 1;
+      this.renderer.setClearColor(0x20252b, 1);
+      this.renderer.clear(true, true, true);
+      this.renderer.setClearColor(prevColor, prevAlpha);
+    } catch (err) {
+      // Ignore fallback errors.
+    }
+  }
+
+  _animate(time) {
+    const now = typeof time === 'number' ? time : performance.now();
     const dt = Math.min((now - this.lastTime) / 1000, 0.1);
     this.lastTime = now;
+
+    this.metrics.lastFrameTime = dt * 1000;
 
     // FPS calculation
     this.frameCount++;
     this.fpsTime += dt;
     if (this.fpsTime >= 1) {
       this.metrics.fps = Math.round(this.frameCount / this.fpsTime);
+      this.metrics.avgFrameTime = (this.fpsTime / this.frameCount) * 1000;
+      this.metrics.entities = {
+        zombies: this.state.zombies?.length ?? 0,
+        turrets: this.state.turrets?.length ?? 0,
+        projectiles: this.state.projectiles?.length ?? 0,
+        turretProjectiles: this.state.turretProjectiles?.length ?? 0
+      };
+      this.metrics.renderer = this._getRendererInfo();
       this._emitCallback('onFpsUpdate', this.metrics.fps);
+      const perfSnapshot = this._getPerformanceSnapshot();
+      this._emitCallback('onPerfUpdate', perfSnapshot);
+      this._emitEvent('PERF_UPDATED', perfSnapshot);
       this.frameCount = 0;
       this.fpsTime = 0;
     }
 
-    if (!this.state.paused && !this.state.gameOver) {
-      this._updateGame(dt, now / 1000);
+    if (!this._hasCrashed) {
+      try {
+        if (!this.state.paused && !this.state.gameOver) {
+          this._updateGame(dt, now / 1000);
+        }
+
+        this._updateCamera(dt);
+        this._updateVisuals(dt, now / 1000);
+      } catch (err) {
+        this._handleRuntimeError(err, {
+          stage: 'update',
+          dt,
+          time: now / 1000,
+          phase: this.phase,
+          wave: this.state.activeWaveNumber,
+          started: this.state.started,
+          gameOver: this.state.gameOver,
+          paused: this.state.paused,
+          counts: {
+            zombies: this.state.zombies?.length ?? 0,
+            turrets: this.state.turrets?.length ?? 0,
+            projectiles: this.state.projectiles?.length ?? 0,
+            turretProjectiles: this.state.turretProjectiles?.length ?? 0
+          },
+          spawn: {
+            toSpawn: this.state.toSpawn,
+            expected: this.state.expectedThisWave,
+            totalSpawned: this.state.totalSpawnedThisWave
+          }
+        });
+      }
     }
 
-    this._updateCamera(dt);
-    this._updateVisuals(dt, now / 1000);
+    if (this.renderer && this.scene && this.camera) {
+      if (this._renderFailed) {
+        this._renderFallback();
+      } else {
+        try {
+          this.renderer.render(this.scene, this.camera);
+          this._renderFailed = false;
+        } catch (err) {
+          this._renderFailed = true;
+          this._handleRuntimeError(err, {
+            stage: 'render',
+            time: now / 1000,
+            phase: this.phase,
+            wave: this.state.activeWaveNumber
+          });
+          this._renderFallback();
+        }
+      }
+    }
 
-    this.renderer.render(this.scene, this.camera);
+    if (this._useRAF) {
+      this.animationId = requestAnimationFrame(this._boundHandlers.animationLoop);
+    }
+  }
+
+  _getRendererInfo() {
+    const info = this.renderer?.info;
+    if (!info) return null;
+
+    return {
+      geometries: info.memory?.geometries ?? 0,
+      textures: info.memory?.textures ?? 0,
+      programs: info.programs?.length ?? 0,
+      drawCalls: info.render?.calls ?? 0,
+      triangles: info.render?.triangles ?? 0
+    };
+  }
+
+  _getPerformanceSnapshot() {
+    return {
+      fps: this.metrics.fps,
+      avgFrameTime: this.metrics.avgFrameTime,
+      lastFrameTime: this.metrics.lastFrameTime,
+      entities: { ...this.metrics.entities },
+      renderer: this.metrics.renderer
+    };
   }
 
   _updateGame(dt, t) {
@@ -1267,7 +1555,7 @@ export class GameEngine {
     const allDead = this.state.zombies.filter(tk => !tk.dead).length === 0;
     const enemiesWereSpawned = this.state.totalSpawnedThisWave > 0 && this.state.totalSpawnedThisWave >= this.state.expectedThisWave;
 
-    if (this.state.wave > 0 && allSpawned && allDead && enemiesWereSpawned && !this.state.waveComplete) {
+    if (this.state.activeWaveNumber > 0 && allSpawned && allDead && enemiesWereSpawned && !this.state.waveComplete) {
       this._onWaveComplete();
     }
 
@@ -1278,7 +1566,7 @@ export class GameEngine {
   _updatePlayer(dt, t) {
     // Movement
     const speed = this.settings.playerSpeed;
-    const move = new THREE.Vector3();
+    const move = this._scratch.move.set(0, 0, 0);
 
     if (this.state.input.w) move.z -= 1;
     if (this.state.input.s) move.z += 1;
@@ -1291,13 +1579,13 @@ export class GameEngine {
       // Apply rotation based on camera mode and settings
       if (this.cameraMode === 'FIRST_PERSON') {
         // In FPS mode, movement relative to look direction (add PI to align with look vector)
-        move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.state.player.rot + Math.PI);
+        move.applyAxisAngle(this._scratch.yAxis, this.state.player.rot + Math.PI);
       } else if (this.settings.cameraRelativeMovement) {
         // In other modes, optionally rotate movement to match camera angle
-        move.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraAngle);
+        move.applyAxisAngle(this._scratch.yAxis, this.cameraAngle);
       }
 
-      const newPos = this.state.player.pos.clone().addScaledVector(move, speed * dt);
+      const newPos = this._scratch.newPos.copy(this.state.player.pos).addScaledVector(move, speed * dt);
 
       // House collision
       this._handleHouseCollision(newPos);
@@ -1315,7 +1603,7 @@ export class GameEngine {
 
     // Rotation (aiming) - non-FPS modes
     if (this.cameraMode !== 'FIRST_PERSON') {
-      const dir = new THREE.Vector3().subVectors(this.state.aim, this.state.player.pos).setY(0);
+      const dir = this._scratch.dir.subVectors(this.state.aim, this.state.player.pos).setY(0);
       if (dir.lengthSq() > 0.01) {
         this.state.player.rot = Math.atan2(dir.x, dir.z);
         this.playerGroup.rotation.y = this.state.player.rot;
@@ -1714,9 +2002,7 @@ export class GameEngine {
 
     if (this.state.player.health <= 0) {
       this.state.player.health = 0;
-      this.state.gameOver = true;
-      this._emitCallback('onGameOver', { score: this.state.score, wave: this.state.wave });
-      this.audioManager?.playSound('gameover');
+      this._checkGameOver();
     }
   }
 
@@ -1916,7 +2202,6 @@ export class GameEngine {
     if (this.state.spawnTimer <= 0) {
       const type = this._getNextSpawnType();
       if (type) {
-        this.spawnedCounts[type]++;
         // Spawn from the opening on the east side
         // Opening is at X=55-67, Z=-6 to 6 (12 unit wide opening)
         const spawnX = 60 + Math.random() * 10; // Spawn outside the treeline opening
@@ -1925,23 +2210,16 @@ export class GameEngine {
         const zombie = this._createZombie(pos, type);
         this.state.zombies.push(zombie);
         this.zombieGrid.insert(zombie, zombie.pos);
-        this.state.toSpawn--;
-        this.state.totalSpawnedThisWave++;
+        this.waveManager.recordSpawn(type);
 
-        const baseDelay = Math.max(0.5, 2.5 - this.state.wave * 0.15);
+        const baseDelay = Math.max(0.5, 2.5 - this.state.activeWaveNumber * 0.15);
         this.state.spawnTimer = baseDelay * (0.8 + Math.random() * 0.4);
       }
     }
   }
 
   _getNextSpawnType() {
-    const comp = this.state.waveComp;
-    const available = Object.entries(comp).filter(([type]) => this.spawnedCounts[type] < comp[type]);
-    if (available.length === 0) return null;
-
-    const weights = { STANDARD: 5, RUNNER: 3, TANK: 2, HEALER: 2, SPLITTER: 2, BOSS: 1 };
-    const weighted = available.flatMap(([type]) => Array(weights[type] || 1).fill(type));
-    return weighted[Math.floor(Math.random() * weighted.length)];
+    return this.waveManager.getNextSpawnType();
   }
 
   _createZombie(pos, type, customScale = null) {
@@ -2102,6 +2380,10 @@ export class GameEngine {
 
       if (damageable && damageable.health <= 0) {
         this.scene.remove(turret.mesh);
+        disposeObject(turret.mesh);
+        if (turret._placementPiece) {
+          this.buildingValidator.removePiece(turret._placementPiece);
+        }
         this.state.turrets.splice(i, 1);
         this.turretGrid.remove(turret);
         this._emitCallback('onTurretsChange', [...this.state.turrets]);
@@ -2121,16 +2403,17 @@ export class GameEngine {
 
     if (this.cameraMode === 'FIRST_PERSON') {
       // First Person: Attach to player head, look based on mouse
-      const headPos = this.state.player.pos.clone().add(new THREE.Vector3(0, 1.6, 0));
+      const headPos = this._scratch.headPos.copy(this.state.player.pos);
+      headPos.y += 1.6;
       this.camera.position.copy(headPos);
 
       // Look direction based on player rotation and pitch
-      const lookDir = new THREE.Vector3(
+      const lookDir = this._scratch.lookDir.set(
         Math.sin(this.state.player.rot) * Math.cos(this.state.player.pitch),
         Math.sin(this.state.player.pitch),
         Math.cos(this.state.player.rot) * Math.cos(this.state.player.pitch)
       );
-      const target = headPos.clone().add(lookDir);
+      const target = this._scratch.lookTarget.copy(headPos).add(lookDir);
       this.camera.lookAt(target);
       this.camera.up.set(0, 1, 0);
 
@@ -2146,19 +2429,20 @@ export class GameEngine {
       }
 
       // Update aim for FPS mode
-      this.state.aim.copy(headPos).add(lookDir.multiplyScalar(30));
+      this.state.aim.copy(headPos).addScaledVector(lookDir, 30);
     } else if (this.cameraMode === 'TOPDOWN') {
       // Show player in other modes
       if (this.playerGroup) this.playerGroup.visible = true;
 
       // Top Down: High above, looking straight down
-      const targetPos = this.state.player.pos.clone().add(pan).add(new THREE.Vector3(0, 50 * this.zoom, 0));
+      const targetPos = this._scratch.lookTarget.copy(this.state.player.pos).add(pan);
+      targetPos.y += 50 * this.zoom;
 
       // Rotate camera orientation based on angle
       this.camera.up.set(Math.sin(this.cameraAngle), 0, Math.cos(this.cameraAngle));
 
       this.camera.position.lerp(targetPos, this.settings.cameraSmoothing);
-      this.camera.lookAt(this.state.player.pos.clone().add(pan));
+      this.camera.lookAt(this._scratch.headPos.copy(this.state.player.pos).add(pan));
     } else {
       // Show player in isometric mode
       if (this.playerGroup) this.playerGroup.visible = true;
@@ -2168,27 +2452,28 @@ export class GameEngine {
       const height = 32 * this.zoom;
 
       // Calculate offset based on angle
-      const rotOffset = new THREE.Vector3(
+      const rotOffset = this._scratch.lookDir.set(
         dist * Math.sin(this.cameraAngle),
         height,
         dist * Math.cos(this.cameraAngle)
       );
 
-      const targetPos = this.state.player.pos.clone().add(pan).add(rotOffset);
+      const targetPos = this._scratch.lookTarget.copy(this.state.player.pos).add(pan).add(rotOffset);
 
       // Screen shake
       if (this.state.shakeDuration > 0) {
         this.state.shakeDuration -= dt;
         const shake = this.state.shakeIntensity * (this.state.shakeDuration > 0 ? 1 : 0);
-        targetPos.add(new THREE.Vector3(
+        const shakeOffset = this._scratch.newPos.set(
           (Math.random() - 0.5) * shake,
           (Math.random() - 0.5) * shake * 0.5,
           (Math.random() - 0.5) * shake * 0.3
-        ));
+        );
+        targetPos.add(shakeOffset);
       }
 
       this.camera.position.lerp(targetPos, this.settings.cameraSmoothing);
-      this.camera.lookAt(this.state.player.pos.clone().add(pan));
+      this.camera.lookAt(this._scratch.headPos.copy(this.state.player.pos).add(pan));
     }
   }
 
@@ -2305,12 +2590,22 @@ export class GameEngine {
    * Start a new game
    */
   startGame(endless = false) {
+    // Guard: cannot start game if wave is already active (must reset first)
+    if (this.phase === GamePhase.WAVE_ACTIVE) {
+      console.log('[GameEngine] startGame blocked: wave is active');
+      return;
+    }
+
     this.reset();
     this.state.started = true;
     this.state.endlessMode = endless;
-    this.state.waveComplete = true;
+    this.state.activeWaveNumber = 0;
+
+    // Transition to WAVE_PREP phase
+    this._setPhase(GamePhase.WAVE_PREP);
+
     this._emitCallback('onWaitingForWave', true);
-    this._emitCallback('onBannerChange', 'Press SPACE to start Wave 1');
+    this._emitCallback('onBannerChange', `Press SPACE to start Wave ${this.upcomingWaveNumber}`);
     this.audioManager?.startMusic();
   }
 
@@ -2318,9 +2613,13 @@ export class GameEngine {
    * Start the next wave
    */
   startWave() {
-    // Guard: must be started, waiting for wave, and not game over
-    if (!this.state.started || !this.state.waveComplete || this.state.gameOver) {
+    // Guard: can only start wave from WAVE_PREP or WAVE_COMPLETE phase
+    const canStart = this.phase === GamePhase.WAVE_PREP ||
+                     this.phase === GamePhase.WAVE_COMPLETE;
+
+    if (!canStart || !this.state.started || this.state.gameOver) {
       console.log('[GameEngine] startWave blocked:', {
+        phase: this.phase,
         started: this.state.started,
         waveComplete: this.state.waveComplete,
         gameOver: this.state.gameOver
@@ -2332,84 +2631,54 @@ export class GameEngine {
     this.state.waveComplete = false;
     this._emitCallback('onWaitingForWave', false);
 
-    this.state.wave++;
-    this.state.waveComp = this._getWaveComposition(this.state.wave, this.state.endlessMode);
+    this.state.activeWaveNumber += 1;
+    this.waveManager.startWave(this.state.activeWaveNumber, this.state.endlessMode);
 
-    // Reset spawn counts
-    this.spawnedCounts = {};
-    Object.keys(this.state.waveComp).forEach(k => this.spawnedCounts[k] = 0);
-
-    // Calculate total enemies
-    this.state.toSpawn = Object.values(this.state.waveComp).reduce((a, b) => a + b, 0);
-    this.state.expectedThisWave = this.state.toSpawn;
-    this.state.totalSpawnedThisWave = 0;
-    this.state.spawnTimer = 1;
-
-    console.log('[GameEngine] Starting wave', this.state.wave, 'with', this.state.toSpawn, 'enemies');
+    console.log('[GameEngine] Starting wave', this.state.activeWaveNumber, 'with', this.state.toSpawn, 'enemies');
     this.state.waveStartHealth = this.state.player.health;
 
-    this._emitCallback('onBannerChange', `Wave ${this.state.wave}`);
+    // Transition to WAVE_ACTIVE phase
+    this._setPhase(GamePhase.WAVE_ACTIVE);
+    this._emitEvent('WAVE_STARTED', {
+      activeWaveNumber: this.state.activeWaveNumber
+    });
+
+    this._emitCallback('onBannerChange', `Wave ${this.state.activeWaveNumber}`);
     setTimeout(() => this._emitCallback('onBannerChange', ''), 2000);
     this.audioManager?.playSound('wave');
   }
 
   _getWaveComposition(wave, endless) {
-    const mult = endless ? 1.3 : 1;
-    const isBossWave = wave >= 5 && wave % 5 === 0;
-    const isBreatherWave = wave > 5 && wave % 5 === 1;
-    const isBuildupWave = wave % 5 === 4;
-
-    let rhythmMult = 1.0;
-    if (isBossWave) rhythmMult = 0.6;
-    else if (isBreatherWave) rhythmMult = 0.7;
-    else if (isBuildupWave) rhythmMult = 1.2;
-
-    const comp = {
-      STANDARD: Math.max(3, Math.round((3 + wave * 0.8) * mult * rhythmMult)),
-      RUNNER: 0,
-      TANK: 0,
-      HEALER: 0,
-      SPLITTER: 0,
-      BOSS: 0
-    };
-
-    if (wave >= 3) {
-      const cap = endless ? 8 + Math.floor(wave * 0.15) : 6;
-      comp.RUNNER = Math.round(Math.min(1 + (wave - 3) * 0.5, cap) * mult * rhythmMult);
-    }
-
-    if (wave >= 5) {
-      const cap = endless ? 5 + Math.floor(wave * 0.1) : 4;
-      comp.TANK = Math.round(Math.min(1 + (wave - 5) * 0.3, cap) * mult * rhythmMult);
-    }
-
-    if (wave >= 7) {
-      const cap = endless ? 4 + Math.floor(wave * 0.08) : 3;
-      comp.HEALER = Math.round(Math.min(1 + (wave - 7) * 0.25, cap) * mult * rhythmMult);
-    }
-
-    if (wave >= 8) {
-      const cap = endless ? 3 + Math.floor(wave * 0.06) : 2;
-      comp.SPLITTER = Math.round(Math.min(1 + (wave - 8) * 0.2, cap) * mult * rhythmMult);
-    }
-
-    if (isBossWave) {
-      comp.BOSS = 1 + Math.floor((wave - 5) / 10);
-    }
-
-    return comp;
+    return this.waveManager.getWaveComposition(wave, endless);
   }
 
   _onWaveComplete() {
-    console.log('[GameEngine] Wave', this.state.wave, 'complete! Setting waveComplete=true');
+    console.log('[GameEngine] Wave', this.state.activeWaveNumber, 'complete! Setting waveComplete=true');
     this.state.waveComplete = true;
-    this._emitCallback('onWaveComplete', this.state.wave);
+
+    // Transition to WAVE_COMPLETE phase
+    this._setPhase(GamePhase.WAVE_COMPLETE);
+    this._emitEvent('WAVE_COMPLETED', {
+      activeWaveNumber: this.state.activeWaveNumber
+    });
+
+    this._emitCallback('onWaveComplete', this.state.activeWaveNumber);
     this._emitCallback('onWaitingForWave', true);
-    this._emitCallback('onBannerChange', `Wave ${this.state.wave} Complete!`);
+    this._emitCallback('onBannerChange', `Wave ${this.state.activeWaveNumber} Complete!`);
     this.audioManager?.playSound('wave');
 
     // Bonus currency
-    this.state.currency += 20 + this.state.wave * 5;
+    this.state.currency += 20 + this.state.activeWaveNumber * 5;
+  }
+
+  _handleRuntimeError(error, context) {
+    if (this._hasCrashed) return;
+    const payload = this.runtimeDiagnostics.captureError(error, context);
+    this._hasCrashed = true;
+    this._setPhase(GamePhase.CRASHED);
+    console.error('[GameEngine] Runtime error:', error, context);
+    this._emitCallback('onRuntimeError', payload);
+    this._emitEvent('RUNTIME_ERROR', payload);
   }
 
   /**
@@ -2449,6 +2718,15 @@ export class GameEngine {
     console.log('[GameEngine] Camera mode:', mode);
   }
 
+  _validateTurretPlacement(position) {
+    return this.buildingValidator.validatePlacement({
+      id: 'preview',
+      position,
+      isGrounded: true,
+      type: 'TURRET'
+    });
+  }
+
   /**
    * Start placing a turret
    */
@@ -2461,6 +2739,8 @@ export class GameEngine {
     }
 
     this.state.placingTurret = turretType;
+    this.state.placementFeedback = null;
+    this.state.placementCursor = null;
     this.turretPreview.visible = true;
 
     // Update range indicator
@@ -2477,6 +2757,8 @@ export class GameEngine {
    */
   cancelTurretPlacement() {
     this.state.placingTurret = null;
+    this.state.placementFeedback = null;
+    this.state.placementCursor = null;
     this.turretPreview.visible = false;
   }
 
@@ -2486,9 +2768,11 @@ export class GameEngine {
     const pos = this.turretPreview.position.clone();
 
     // Validate placement
-    const dist = pos.distanceTo(this.state.house.pos);
-    if (dist < this.config.turretMinDistance || dist > this.config.turretMaxDistance) {
-      this._emitCallback('onBannerChange', 'Invalid placement position');
+    const validation = this._validateTurretPlacement(pos);
+    this.state.placementFeedback = validation;
+    if (!validation.ok) {
+      const message = validation.reasons[0]?.message || 'Invalid placement position';
+      this._emitCallback('onBannerChange', message);
       setTimeout(() => this._emitCallback('onBannerChange', ''), 1500);
       return;
     }
@@ -2502,6 +2786,15 @@ export class GameEngine {
 
     // Create turret
     const turret = this._createTurretMesh(type, pos);
+    turret.id = `turret-${this._nextStructureId++}`;
+    const placementPiece = {
+      id: turret.id,
+      position: turret.pos,
+      type: 'TURRET',
+      isGrounded: true
+    };
+    this.buildingValidator.addPiece(placementPiece);
+    turret._placementPiece = placementPiece;
     this.state.turrets.push(turret);
     this.turretGrid.insert(turret, pos);
     this.state.currency -= stats.cost;
@@ -2744,7 +3037,19 @@ export class GameEngine {
    * Toggle pause state
    */
   togglePause() {
-    this.state.paused = !this.state.paused;
+    if (this.phase === GamePhase.CRASHED || this.phase === GamePhase.GAME_OVER || this.phase === GamePhase.READY) return;
+
+    if (this.phase === GamePhase.PAUSED) {
+      const resumePhase = this._phaseBeforePause || GamePhase.WAVE_PREP;
+      this._phaseBeforePause = null;
+      this.state.paused = false;
+      this._setPhase(resumePhase);
+    } else {
+      this._phaseBeforePause = this.phase;
+      this.state.paused = true;
+      this._setPhase(GamePhase.PAUSED);
+    }
+
     this._emitCallback('onPauseChange', this.state.paused);
   }
 
@@ -2780,15 +3085,18 @@ export class GameEngine {
     // Clean up zombies
     for (const tk of this.state.zombies) {
       this.scene.remove(tk.mesh);
+      disposeObject(tk.mesh);
     }
     this.state.zombies = [];
 
     // Clean up projectiles
     for (const p of this.state.projectiles) {
       this.scene.remove(p.mesh);
+      disposeObject(p.mesh);
     }
     for (const p of this.state.turretProjectiles) {
       this.scene.remove(p.mesh);
+      disposeObject(p.mesh);
     }
     this.state.projectiles = [];
     this.state.turretProjectiles = [];
@@ -2796,19 +3104,24 @@ export class GameEngine {
     // Clean up turrets
     for (const t of this.state.turrets) {
       this.scene.remove(t.mesh);
+      disposeObject(t.mesh);
     }
     this.state.turrets = [];
 
     // Reset state
-    this.state.wave = 0;
+    this.state.activeWaveNumber = 0;
     this.state.toSpawn = 0;
     this.state.totalSpawnedThisWave = 0;
     this.state.expectedThisWave = 0;
+    this.state.waveComp = {};
     this.state.currency = 100;
     this.state.score = 0;
     this.state.gameOver = false;
     this.state.waveComplete = false;
     this.state.currentWeapon = 'PITCHFORK';
+    this.state.placingTurret = null;
+    this.state.placementFeedback = null;
+    this.state.placementCursor = null;
     this.state.player.pos.set(-40, 0, -25);  // Near house in corner
     this.state.player.health = 100;
     this.state.player.maxHealth = 100;
@@ -2834,12 +3147,12 @@ export class GameEngine {
     this.turretGrid.clear();
     this.buildingValidator.clear();
     this.damageManager.clear();
+    this.waveManager.reset();
 
     this._updateStats();
   }
 
-  _updateStats() {
-    // Calculate house integrity
+  _calculateHouseIntegrity() {
     let totalHealth = 0;
     let maxHealth = 0;
     for (const door of this.houseDoors) {
@@ -2850,23 +3163,35 @@ export class GameEngine {
       totalHealth += win.health;
       maxHealth += win.maxHealth;
     }
-    const houseIntegrity = maxHealth > 0 ? Math.round((totalHealth / maxHealth) * 100) : 100;
+    return maxHealth > 0 ? Math.round((totalHealth / maxHealth) * 100) : 100;
+  }
+
+  _updateStats() {
+    const houseIntegrity = this._calculateHouseIntegrity();
 
     this._emitCallback('onStatsUpdate', {
       health: Math.round((this.state.player.health / this.state.player.maxHealth) * 100),
       currency: this.state.currency,
-      wave: this.state.wave,
+      wave: this.state.activeWaveNumber,
+      upcomingWaveNumber: this.upcomingWaveNumber,
+      phase: this.phase,
       enemies: this.state.zombies.filter(tk => !tk.dead).length,
       score: this.state.score,
       houseIntegrity,
       isInside: this.state.player.isInside
     });
+
+    this._emitEvent('STATE_CHANGED', this.getSnapshot());
   }
 
   _emitCallback(name, data) {
     if (this.callbacks[name]) {
       this.callbacks[name](data);
     }
+  }
+
+  _emitEvent(event, detail) {
+    this.eventBus.emit(event, detail);
   }
 
   /**
@@ -2879,10 +3204,49 @@ export class GameEngine {
   }
 
   /**
+   * Subscribe to engine events.
+   */
+  onEvent(event, handler) {
+    return this.eventBus.on(event, handler);
+  }
+
+  /**
+   * Unsubscribe from engine events.
+   */
+  offEvent(event, handler) {
+    this.eventBus.off(event, handler);
+  }
+
+  /**
    * Get the current game state (for saving)
    */
   getState() {
     return { ...this.state };
+  }
+
+  /**
+   * Get the most recent runtime error (if any)
+   */
+  getLastError() {
+    return this.runtimeDiagnostics.getLastError();
+  }
+
+  /**
+   * Clear runtime error state
+   */
+  clearRuntimeError() {
+    this.runtimeDiagnostics.clear();
+  }
+
+  /**
+   * Attempt to recover from a crash by clearing flags
+   */
+  recoverFromCrash() {
+    this._hasCrashed = false;
+    this._renderFailed = false;
+    this.phase = GamePhase.READY;
+    this.state.activeWaveNumber = 0;
+    this.runtimeDiagnostics.clear();
   }
 
   /**
@@ -2940,9 +3304,7 @@ export class GameEngine {
    */
   dispose() {
     // Stop animation loop
-    if (this.animationId) {
-      cancelAnimationFrame(this.animationId);
-    }
+    this._stopAnimationLoop();
 
     // Remove event listeners
     window.removeEventListener('resize', this._boundHandlers.resize);
@@ -2963,6 +3325,9 @@ export class GameEngine {
     }
 
     // Dispose Three.js resources
+    if (this.scene) {
+      disposeScene(this.scene);
+    }
     if (this.renderer) {
       this.renderer.dispose();
       if (this.container?.contains(this.renderer.domElement)) {
