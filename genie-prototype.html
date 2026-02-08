@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Genie Vibe Prototype</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #2C3E50; font-family: 'Courier New', sans-serif; }
+        #ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; text-align: center; background: rgba(0,0,0,0.6); padding: 20px;
+            border-radius: 8px; pointer-events: none; user-select: none;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; letter-spacing: 2px; }
+        p { margin: 0; color: #ccc; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>❄️ GENIE PROTOTYPE</h1>
+        <p>CLICK TO START</p>
+        <p>WASD = Move | SPACE = Jump</p>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // --- TWEAKABLE CONSTANTS (The "Game Feel") ---
+        const CONFIG = {
+            gravity: -30,           // Heavy, snappy gravity
+            moveSpeed: 10,          // Fast jog
+            jumpForce: 15,          // Athletic jump
+            physicsStep: 1 / 60,
+            worldSize: 50,          // 50x50 grid
+            colors: {
+                sky: 0x2C3E50,      // Deep Blue-Grey
+                snow: 0xE8F1FF,     // Cool White
+                player: 0x34495E,   // Tactical Grey
+                enemy: 0x2ECC71,    // Vibrant Green
+                boss: 0x8E44AD,     // Royal Purple
+                wood: 0x5D4037      // Barn Brown
+            }
+        };
+
+        // Globals
+        let scene, camera, renderer, controls;
+        let world, playerBody;
+        let lastTime = performance.now();
+        const input = { moveForward: false, moveBackward: false, moveLeft: false, moveRight: false, jump: false };
+        const playerMeshGroup = new THREE.Group();
+        let canJump = false;
+
+        init();
+        animate();
+
+        function init() {
+            // 1. SCENE SETUP
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(CONFIG.colors.sky);
+            // Heavy fog for that "Silent Hill" winter vibe
+            scene.fog = new THREE.FogExp2(CONFIG.colors.sky, 0.035);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            
+            // 2. LIGHTING
+            const ambient = new THREE.AmbientLight(0xffffff, 0.4); // Blue-ish tint from sky
+            scene.add(ambient);
+
+            const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+            sun.position.set(30, 50, 20);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048;
+            sun.shadow.mapSize.height = 2048;
+            scene.add(sun);
+
+            // 3. PHYSICS WORLD
+            world = new CANNON.World();
+            world.gravity.set(0, CONFIG.gravity, 0);
+            
+            // Frictionless material for movement (we apply forces manually)
+            const slipperyMat = new CANNON.Material('slippery');
+            const contactMat = new CANNON.ContactMaterial(slipperyMat, slipperyMat, {
+                friction: 0.0,
+                restitution: 0.0
+            });
+            world.addContactMaterial(contactMat);
+
+            // 4. GENERATE WORLD
+            createVoxelTerrain();
+            createDecorations();
+            createPlayer(slipperyMat);
+
+            // 5. RENDERER
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // 6. CONTROLS
+            // We use PointerLock for looking around, but we'll calculate 3rd person cam manually
+            controls = new PointerLockControls(camera, document.body);
+            
+            const ui = document.getElementById('ui');
+            document.addEventListener('click', () => controls.lock());
+            controls.addEventListener('lock', () => ui.style.display = 'none');
+            controls.addEventListener('unlock', () => ui.style.display = 'block');
+
+            // Input Handlers
+            document.addEventListener('keydown', (e) => onKey(e, true));
+            document.addEventListener('keyup', (e) => onKey(e, false));
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createVoxelTerrain() {
+            // Using InstancedMesh for high performance
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshStandardMaterial({ color: CONFIG.colors.snow, roughness: 1.0 });
+            
+            const count = CONFIG.worldSize * CONFIG.worldSize;
+            const mesh = new THREE.InstancedMesh(geometry, material, count);
+            mesh.receiveShadow = true;
+            mesh.castShadow = true;
+
+            let i = 0;
+            const dummy = new THREE.Object3D();
+            const halfSize = CONFIG.worldSize / 2;
+
+            for (let x = -halfSize; x < halfSize; x++) {
+                for (let z = -halfSize; z < halfSize; z++) {
+                    // Simple noise function for rolling hills
+                    const h = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 3;
+                    const y = Math.floor(h); // Voxelize height
+
+                    dummy.position.set(x, y, z);
+                    dummy.updateMatrix();
+                    mesh.setMatrixAt(i++, dummy.matrix);
+
+                    // Add Physics Body for each voxel
+                    // (Optimization: In a full game, use a Heightfield. For this prototype, boxes are fine.)
+                    const body = new CANNON.Body({ mass: 0 }); // Static
+                    body.addShape(new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)));
+                    body.position.set(x, y, z);
+                    world.addBody(body);
+                }
+            }
+            scene.add(mesh);
+        }
+
+        function createDecorations() {
+            // 1. The Giant (Boss)
+            const bossGeo = new THREE.BoxGeometry(4, 5, 3);
+            const bossMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.boss });
+            const boss = new THREE.Mesh(bossGeo, bossMat);
+            boss.position.set(15, 3, -15);
+            boss.castShadow = true;
+            scene.add(boss);
+
+            // 2. Zombies (Green Vines)
+            const vineGeo = new THREE.BoxGeometry(0.8, 2, 0.8);
+            const vineMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.enemy, emissive: 0x003300 });
+            
+            const positions = [[5, 1, -5], [8, 2, -8], [-5, 1, -10]];
+            positions.forEach(pos => {
+                const vine = new THREE.Mesh(vineGeo, vineMat);
+                vine.position.set(pos[0], pos[1], pos[2]);
+                vine.castShadow = true;
+                scene.add(vine);
+                
+                // Physics for obstacle
+                const body = new CANNON.Body({ mass: 0 });
+                body.addShape(new CANNON.Box(new CANNON.Vec3(0.4, 1, 0.4)));
+                body.position.set(pos[0], pos[1], pos[2]);
+                world.addBody(body);
+            });
+        }
+
+        function createPlayer(material) {
+            // Physics Body
+            const radius = 0.5;
+            playerBody = new CANNON.Body({
+                mass: 5,
+                shape: new CANNON.Sphere(radius),
+                material: material,
+                fixedRotation: true // Prevent rolling
+            });
+            playerBody.position.set(0, 10, 0);
+            playerBody.linearDamping = 0.9; // Air resistance / Ground friction approximation
+            world.addBody(playerBody);
+
+            // Visual Mesh
+            const bodyGeo = new THREE.CapsuleGeometry(radius, 1, 4, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.player });
+            const mesh = new THREE.Mesh(bodyGeo, bodyMat);
+            mesh.castShadow = true;
+            
+            // Add a "Weapon" to see rotation
+            const stick = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.1), new THREE.MeshStandardMaterial({ color: CONFIG.colors.enemy }));
+            stick.position.set(0.4, 0.2, 0.4);
+            stick.rotation.x = Math.PI / 4;
+            mesh.add(stick);
+
+            playerMeshGroup.add(mesh);
+            scene.add(playerMeshGroup);
+        }
+
+        function onKey(event, isDown) {
+            switch (event.code) {
+                case 'KeyW': input.moveForward = isDown; break;
+                case 'KeyS': input.moveBackward = isDown; break;
+                case 'KeyA': input.moveLeft = isDown; break;
+                case 'KeyD': input.moveRight = isDown; break;
+                case 'Space': 
+                    if(isDown && canJump) {
+                        playerBody.velocity.y = CONFIG.jumpForce;
+                        canJump = false;
+                    }
+                    break;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = performance.now();
+            const delta = (time - lastTime) / 1000;
+            lastTime = time;
+
+            if (controls.isLocked) {
+                // 1. PHYSICS STEP
+                world.step(CONFIG.physicsStep);
+
+                // 2. MOVEMENT LOGIC
+                // Get camera direction (ignoring Y for flat movement)
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                camDir.y = 0; 
+                camDir.normalize();
+
+                const camRight = new THREE.Vector3();
+                camRight.crossVectors(camDir, new THREE.Vector3(0, 1, 0));
+
+                const moveVec = new THREE.Vector3();
+                if (input.moveForward) moveVec.add(camDir);
+                if (input.moveBackward) moveVec.sub(camDir);
+                if (input.moveRight) moveVec.add(camRight);
+                if (input.moveLeft) moveVec.sub(camRight);
+
+                if (moveVec.length() > 0) {
+                    moveVec.normalize().multiplyScalar(CONFIG.moveSpeed);
+                    playerBody.velocity.x = moveVec.x;
+                    playerBody.velocity.z = moveVec.z;
+
+                    // Rotate player mesh to face move direction
+                    const angle = Math.atan2(moveVec.x, moveVec.z);
+                    // Smooth rotation
+                    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
+                    playerMeshGroup.quaternion.slerp(q, 0.2);
+                } else {
+                    // Stop instantly (snappy feel)
+                    playerBody.velocity.x = 0;
+                    playerBody.velocity.z = 0;
+                }
+
+                // Ground Check
+                const rayStart = new CANNON.Vec3(playerBody.position.x, playerBody.position.y, playerBody.position.z);
+                const rayEnd = new CANNON.Vec3(playerBody.position.x, playerBody.position.y - 1.1, playerBody.position.z);
+                const result = new CANNON.RaycastResult();
+                const ray = new CANNON.Ray(rayStart, rayEnd);
+                
+                if (Math.abs(playerBody.velocity.y) < 0.2) canJump = true;
+
+                // 3. SYNC VISUALS
+                playerMeshGroup.position.copy(playerBody.position);
+                playerMeshGroup.position.y -= 0.5; // Offset because sphere center is 0.5 up
+
+                // 4. CAMERA FOLLOW (3rd Person)
+                // We use the pointer lock object for rotation, but force its position behind player
+                const offsetDist = 5;
+                const offsetHeight = 3;
+                
+                // Calculate ideal camera position based on player pos + camera angle
+                const idealPos = new THREE.Vector3(0, 0, 0);
+                const back = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+                
+                idealPos.copy(playerMeshGroup.position).add(new THREE.Vector3(0, offsetHeight, 0));
+                idealPos.add(back.multiplyScalar(offsetDist));
+
+                // Lerp for smoothness
+                camera.position.lerp(idealPos, 0.2);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>

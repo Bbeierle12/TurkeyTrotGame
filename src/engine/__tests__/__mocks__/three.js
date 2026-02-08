@@ -691,6 +691,62 @@ export class Line extends Object3D {
 }
 
 // ============================================
+// INSTANCED MESH
+// ============================================
+export class InstancedMesh extends Object3D {
+  constructor(geometry, material, count) {
+    super();
+    this.type = 'InstancedMesh';
+    this.geometry = geometry;
+    this.material = material;
+    this.count = count;
+    this.instanceMatrix = {
+      needsUpdate: false,
+      array: new Float32Array(count * 16)
+    };
+    this.instanceColor = null;
+  }
+
+  setMatrixAt(index, matrix) {
+    // Store matrix data at index
+  }
+
+  setColorAt(index, color) {
+    if (!this.instanceColor) {
+      this.instanceColor = {
+        needsUpdate: false,
+        array: new Float32Array(this.count * 3)
+      };
+    }
+  }
+}
+
+// ============================================
+// MATRIX4
+// ============================================
+export class Matrix4 {
+  constructor() {
+    this.elements = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  }
+
+  compose(position, quaternion, scale) {
+    return this;
+  }
+
+  decompose(position, quaternion, scale) {
+    return this;
+  }
+
+  makeTranslation(x, y, z) {
+    return this;
+  }
+
+  identity() {
+    return this;
+  }
+}
+
+// ============================================
 // FOG
 // ============================================
 export class Fog {
@@ -698,6 +754,13 @@ export class Fog {
     this.color = new Color(color);
     this.near = near;
     this.far = far;
+  }
+}
+
+export class FogExp2 {
+  constructor(color, density) {
+    this.color = new Color(color);
+    this.density = density;
   }
 }
 
@@ -831,6 +894,8 @@ export default {
   PerspectiveCamera,
   OrthographicCamera,
   Mesh,
+  InstancedMesh,
+  Matrix4,
   Light,
   AmbientLight,
   DirectionalLight,
@@ -854,6 +919,7 @@ export default {
   Points,
   Line,
   Fog,
+  FogExp2,
   Raycaster,
   Plane,
   WebGLRenderer,

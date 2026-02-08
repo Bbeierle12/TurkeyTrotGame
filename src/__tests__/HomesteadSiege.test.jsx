@@ -246,7 +246,7 @@ describe('HomesteadSiege Component', () => {
     });
 
     it('should display camera mode indicator', () => {
-      expect(screen.getByText(/ISOMETRIC/)).toBeInTheDocument();
+      expect(screen.getByText(/SHOULDER/)).toBeInTheDocument();
     });
   });
 

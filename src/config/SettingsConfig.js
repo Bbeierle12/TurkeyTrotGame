@@ -62,6 +62,16 @@ export const SettingsDefinitions = {
     default: false,
     description: 'Invert horizontal mouse movement'
   },
+  jumpForce: {
+    category: 'controls',
+    label: 'Jump Force',
+    type: 'slider',
+    default: 15,
+    min: 8,
+    max: 25,
+    step: 1,
+    description: 'How high the player jumps'
+  },
 
   // === CAMERA ===
   zoomSensitivity: {
@@ -118,11 +128,31 @@ export const SettingsDefinitions = {
     category: 'camera',
     label: 'Field of View',
     type: 'slider',
-    default: 50,
+    default: 75,
     min: 40,
     max: 90,
     step: 5,
     description: 'Camera field of view angle'
+  },
+  shoulderDistance: {
+    category: 'camera',
+    label: 'Camera Distance',
+    type: 'slider',
+    default: 5,
+    min: 3,
+    max: 10,
+    step: 0.5,
+    description: 'Distance of camera behind player in shoulder mode'
+  },
+  shoulderHeight: {
+    category: 'camera',
+    label: 'Camera Height',
+    type: 'slider',
+    default: 3,
+    min: 1,
+    max: 6,
+    step: 0.5,
+    description: 'Height of camera above player in shoulder mode'
   },
 
   // === GRAPHICS ===
@@ -352,6 +382,9 @@ export const GameEngineSettings = [
   'panSpeed',
   'cameraSmoothing',
   'fov',
+  'shoulderDistance',
+  'shoulderHeight',
+  'jumpForce',
   'particleCount',
   'shadowQuality',
   'antialiasing'

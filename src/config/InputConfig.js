@@ -3,7 +3,8 @@ export const InputBindings = {
     forward: ['KeyW'],
     backward: ['KeyS'],
     left: ['KeyA'],
-    right: ['KeyD']
+    right: ['KeyD'],
+    jump: ['Space']
   },
   pan: {
     up: ['ArrowUp'],

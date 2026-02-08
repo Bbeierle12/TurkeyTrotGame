@@ -6,6 +6,7 @@
  */
 
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { SpatialHashGrid2D } from './SpatialHashGrid2D.js';
 import { BuildingValidator } from './BuildingValidator.js';
 import { DamageManager, DamageVisualizer, DamageType } from './DamageManager.js';
@@ -90,13 +91,23 @@ export class GameEngine {
     this.particleGeo = null;
     this.particleSystem = null;
 
+    // Voxel terrain
+    this.terrainMesh = null;
+    this.terrainHeights = null;
+
+    // Physics (Cannon.js)
+    this.physicsWorld = null;
+    this.playerBody = null;
+    this.canJump = false;
+    this.physicsStep = 1 / 60;
+
     // Snow system
     this.leafCount = 50;  // snowflake count
     this.leafData = [];   // snowflake animation data
     this.leafGeo = null;
 
     // Camera settings
-    this.cameraMode = 'ISOMETRIC';
+    this.cameraMode = 'SHOULDER';
     this.zoom = 1.0;
     this.cameraAngle = Math.PI; // Camera behind player so W moves "forward" on screen
     this.panOffset = new THREE.Vector3();
@@ -118,10 +129,13 @@ export class GameEngine {
       zoomMax: 2.0,
       panSpeed: 20,
       cameraSmoothing: 0.1,
-      fov: 50,
+      fov: 75,
       particleCount: 500,
       shadowQuality: 'MEDIUM',
-      antialiasing: true
+      antialiasing: true,
+      shoulderDistance: 5,
+      shoulderHeight: 3,
+      jumpForce: 15
     };
 
     // Core game state
@@ -171,6 +185,7 @@ export class GameEngine {
 
       input: {
         w: false, a: false, s: false, d: false,
+        jump: false,
         firing: false,
         panUp: false, panDown: false, panLeft: false, panRight: false
       },
@@ -418,6 +433,7 @@ export class GameEngine {
     this._initScene();
     this._initLighting();
     this._initGround();
+    this._initPhysics();
     this._initParticleSystem();
     this._initSnow();
     this._initPlayer();
@@ -438,14 +454,14 @@ export class GameEngine {
 
   _initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xb8c8d8);  // Cold winter gray-blue
-    this.scene.fog = new THREE.Fog(0xb8c8d8, 40, 110);
+    this.scene.background = new THREE.Color(0x2C3E50);  // Deep blue-grey twilight
+    this.scene.fog = new THREE.FogExp2(0x2C3E50, 0.035);
 
     this.camera = new THREE.PerspectiveCamera(
-      50,
+      75,
       this.container.clientWidth / this.container.clientHeight,
       0.1,
-      200
+      100
     );
     this.camera.position.copy(this.baseCamPos);
     this.camera.lookAt(0, 0, 0);
@@ -461,11 +477,11 @@ export class GameEngine {
   }
 
   _initLighting() {
-    // Winter lighting - cooler tones
-    this.scene.add(new THREE.AmbientLight(0xd0e0f0, 0.5));
+    // Overcast winter twilight - moody atmosphere
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
     const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-    sun.position.set(25, 45, 20);
+    sun.position.set(30, 50, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.left = sun.shadow.camera.bottom = -80;
@@ -474,44 +490,140 @@ export class GameEngine {
     sun.shadow.camera.far = 150;
     sun.shadow.bias = -0.0001;
     this.scene.add(sun);
-
-    const fillLight = new THREE.DirectionalLight(0x8899aa, 0.25);  // Cool blue fill
-    fillLight.position.set(-25, 15, 0);
-    this.scene.add(fillLight);
-
-    this.scene.add(new THREE.HemisphereLight(0xb8c8d8, 0x4a4a4a, 0.35));  // Winter sky/ground
   }
 
   _initGround() {
-    const groundGeo = new THREE.PlaneGeometry(150, 150, 40, 40);
-    const positions = groundGeo.attributes.position.array;
-    for (let i = 0; i < positions.length; i += 3) {
-      positions[i + 2] = Math.sin(positions[i] * 0.08) * Math.cos(positions[i + 1] * 0.08) * 0.4;
-    }
-    groundGeo.computeVertexNormals();
-    const ground = new THREE.Mesh(
-      groundGeo,
-      new THREE.MeshStandardMaterial({ color: 0x8a9a7a, roughness: 0.95 })  // Winter faded grass
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
+    const worldSize = 50;
+    const halfSize = worldSize / 2;
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial({ color: 0xE8F1FF, roughness: 1.0 });
 
-    // Path indicators (rings around barn)
-    [8, 16, 24].forEach((r, i) => {
+    const count = worldSize * worldSize;
+    this.terrainMesh = new THREE.InstancedMesh(geometry, material, count);
+    this.terrainMesh.receiveShadow = true;
+    this.terrainMesh.castShadow = true;
+
+    this.terrainHeights = new Map();
+
+    let i = 0;
+    const dummy = new THREE.Object3D();
+
+    for (let x = -halfSize; x < halfSize; x++) {
+      for (let z = -halfSize; z < halfSize; z++) {
+        const h = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 3;
+        const y = Math.floor(h);
+
+        dummy.position.set(x, y, z);
+        dummy.updateMatrix();
+        this.terrainMesh.setMatrixAt(i++, dummy.matrix);
+
+        this.terrainHeights.set(`${x},${z}`, y);
+      }
+    }
+
+    this.terrainMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(this.terrainMesh);
+
+    // Path indicators (rings around barn) - raised above terrain
+    [8, 16, 24].forEach((r, idx) => {
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(r - 0.1, r + 0.1, 64),
         new THREE.MeshBasicMaterial({
-          color: [0x88ff88, 0xffff88, 0xff8888][i],
+          color: [0x88ff88, 0xffff88, 0xff8888][idx],
           transparent: true,
           opacity: 0.15,
           side: THREE.DoubleSide
         })
       );
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
+      ring.position.y = 4.0;
       this.scene.add(ring);
     });
+  }
+
+  _getTerrainHeight(x, z) {
+    const vx = Math.round(x);
+    const vz = Math.round(z);
+    return this.terrainHeights?.get(`${vx},${vz}`) ?? 0;
+  }
+
+  _initPhysics() {
+    this.physicsWorld = new CANNON.World();
+    this.physicsWorld.gravity.set(0, -30, 0);
+    this.physicsWorld.broadphase = new CANNON.SAPBroadphase(this.physicsWorld);
+
+    // Slippery material - we control movement via velocity directly
+    const slipperyMat = new CANNON.Material('slippery');
+    const contactMat = new CANNON.ContactMaterial(slipperyMat, slipperyMat, {
+      friction: 0.0,
+      restitution: 0.0
+    });
+    this.physicsWorld.addContactMaterial(contactMat);
+
+    // Terrain physics - use Heightfield for performance
+    this._createTerrainBody();
+
+    // Player physics body
+    this._createPlayerBody(slipperyMat);
+
+    // Static house collision body
+    const houseLevel = HouseUpgrades[Object.keys(HouseUpgrades)[this.state.upgrades.houseLevel] || 'BASIC'];
+    const houseBody = new CANNON.Body({ mass: 0 });
+    houseBody.addShape(new CANNON.Box(new CANNON.Vec3(
+      houseLevel.width / 2, houseLevel.height / 2, houseLevel.depth / 2
+    )));
+    houseBody.position.set(-40, houseLevel.height / 2, -40);
+    this.physicsWorld.addBody(houseBody);
+  }
+
+  _createTerrainBody() {
+    const worldSize = 50;
+
+    // Build height matrix for Heightfield
+    const matrix = [];
+    for (let x = 0; x < worldSize; x++) {
+      matrix.push([]);
+      for (let z = 0; z < worldSize; z++) {
+        const wx = x - worldSize / 2;
+        const wz = z - worldSize / 2;
+        const h = Math.floor(Math.sin(wx * 0.1) * Math.cos(wz * 0.1) * 3);
+        matrix[x].push(h + 4); // Offset so minimum height > 0
+      }
+    }
+
+    const heightfieldShape = new CANNON.Heightfield(matrix, {
+      elementSize: 1
+    });
+
+    const terrainBody = new CANNON.Body({ mass: 0 });
+    terrainBody.addShape(heightfieldShape);
+    // Position heightfield to align with visual voxels
+    terrainBody.position.set(-worldSize / 2, -4, worldSize / 2);
+    terrainBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    this.physicsWorld.addBody(terrainBody);
+
+    // Add a large floor plane outside the voxel grid (for house area, etc.)
+    const floorBody = new CANNON.Body({ mass: 0 });
+    floorBody.addShape(new CANNON.Plane());
+    floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    floorBody.position.set(0, -0.5, 0);
+    this.physicsWorld.addBody(floorBody);
+  }
+
+  _createPlayerBody(material) {
+    const radius = 0.5;
+    this.playerBody = new CANNON.Body({
+      mass: 5,
+      shape: new CANNON.Sphere(radius),
+      material: material,
+      fixedRotation: true
+    });
+
+    // Start elevated to drop onto terrain
+    const pos = this.state.player.pos;
+    this.playerBody.position.set(pos.x, pos.y + 5, pos.z);
+    this.playerBody.linearDamping = 0.9;
+    this.physicsWorld.addBody(this.playerBody);
   }
 
   _initParticleSystem() {
@@ -581,7 +693,7 @@ export class GameEngine {
   _initPlayer() {
     this.playerGroup = new THREE.Group();
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4169e1, roughness: 0.8 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x34495E, roughness: 0.8 });
     const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd1a4, roughness: 0.7 });
 
     // Torso
@@ -665,7 +777,7 @@ export class GameEngine {
     this.houseGroup.add(foundation);
 
     // Main walls - DoubleSide so walls are visible from inside
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x5D4037, roughness: 0.85, side: THREE.DoubleSide });
 
     // Front wall with door hole
     const frontWall = this._createWallWithOpening(width, height, 1.8, 2.5, 'door');
@@ -739,7 +851,7 @@ export class GameEngine {
 
   _createWallWithOpening(width, height, openingWidth, openingHeight, type) {
     const group = new THREE.Group();
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x5D4037, roughness: 0.85, side: THREE.DoubleSide });
     const thickness = 0.3;
 
     // Left section
@@ -781,7 +893,7 @@ export class GameEngine {
 
   _createWallWithWindows(width, height, windowCount) {
     const group = new THREE.Group();
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.85, side: THREE.DoubleSide });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x5D4037, roughness: 0.85, side: THREE.DoubleSide });
     const thickness = 0.3;
 
     // For simplicity, create solid wall - windows are added separately
@@ -803,14 +915,14 @@ export class GameEngine {
     // Door frame
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(1.9, 2.6, 0.15),
-      new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0x2C1810, roughness: 0.9 })
     );
     doorGroup.add(frame);
 
     // Door panel (destructible)
     const panel = new THREE.Mesh(
       new THREE.BoxGeometry(1.6, 2.3, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.85 })
+      new THREE.MeshStandardMaterial({ color: 0x4A3528, roughness: 0.85 })
     );
     panel.position.z = 0.05;
     panel.castShadow = true;
@@ -859,7 +971,7 @@ export class GameEngine {
     // Window frame
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(0.15, 1.2, 0.9),
-      new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0x2C1810, roughness: 0.9 })
     );
     windowGroup.add(frame);
 
@@ -1232,6 +1344,7 @@ export class GameEngine {
     if (movement.left.includes(e.code)) this.state.input.a = down;
     if (movement.backward.includes(e.code)) this.state.input.s = down;
     if (movement.right.includes(e.code)) this.state.input.d = down;
+    if (movement.jump?.includes(e.code)) this.state.input.jump = down;
 
     if (pan.up.includes(e.code)) this.state.input.panUp = down;
     if (pan.down.includes(e.code)) this.state.input.panDown = down;
@@ -1455,6 +1568,11 @@ export class GameEngine {
 
     if (!this._hasCrashed) {
       try {
+        // Step physics world
+        if (this.physicsWorld && !this.state.paused && !this.state.gameOver) {
+          this.physicsWorld.step(this.physicsStep, dt, 3);
+        }
+
         if (!this.state.paused && !this.state.gameOver) {
           this._updateGame(dt, now / 1000);
         }
@@ -1564,7 +1682,6 @@ export class GameEngine {
   }
 
   _updatePlayer(dt, t) {
-    // Movement
     const speed = this.settings.playerSpeed;
     const move = this._scratch.move.set(0, 0, 0);
 
@@ -1573,42 +1690,106 @@ export class GameEngine {
     if (this.state.input.a) move.x -= 1;
     if (this.state.input.d) move.x += 1;
 
-    if (move.lengthSq() > 0) {
-      move.normalize();
+    if (this.playerBody) {
+      // === Physics-based movement ===
+      if (move.lengthSq() > 0) {
+        move.normalize();
 
-      // Apply rotation based on camera mode and settings
-      if (this.cameraMode === 'FIRST_PERSON') {
-        // In FPS mode, movement relative to look direction (add PI to align with look vector)
-        move.applyAxisAngle(this._scratch.yAxis, this.state.player.rot + Math.PI);
-      } else if (this.settings.cameraRelativeMovement) {
-        // In other modes, optionally rotate movement to match camera angle
-        move.applyAxisAngle(this._scratch.yAxis, this.cameraAngle);
+        // Apply camera-relative rotation
+        if (this.cameraMode === 'FIRST_PERSON') {
+          move.applyAxisAngle(this._scratch.yAxis, this.state.player.rot + Math.PI);
+        } else if (this.cameraMode === 'SHOULDER' || this.settings.cameraRelativeMovement) {
+          move.applyAxisAngle(this._scratch.yAxis, this.cameraAngle);
+        }
+
+        move.multiplyScalar(speed);
+        this.playerBody.velocity.x = move.x;
+        this.playerBody.velocity.z = move.z;
+
+        // Rotate player mesh to face movement direction
+        const angle = Math.atan2(move.x, move.z);
+        const q = new THREE.Quaternion().setFromAxisAngle(this._scratch.yAxis, angle);
+        this.playerGroup.quaternion.slerp(q, 0.2);
+      } else {
+        // Stop horizontal movement instantly (snappy feel)
+        this.playerBody.velocity.x = 0;
+        this.playerBody.velocity.z = 0;
       }
 
-      const newPos = this._scratch.newPos.copy(this.state.player.pos).addScaledVector(move, speed * dt);
+      // Jump
+      if (this.state.input.jump && this.canJump) {
+        this.playerBody.velocity.y = this.settings.jumpForce || 15;
+        this.canJump = false;
+      }
 
-      // House collision
-      this._handleHouseCollision(newPos);
+      // Ground check (velocity-based)
+      if (Math.abs(this.playerBody.velocity.y) < 0.5) {
+        this.canJump = true;
+      }
 
-      // World bounds
-      newPos.x = Math.max(-45, Math.min(45, newPos.x));
-      newPos.z = Math.max(-45, Math.min(45, newPos.z));
-
-      this.state.player.pos.copy(newPos);
+      // Sync Three.js mesh with Cannon body
+      this.state.player.pos.set(
+        this.playerBody.position.x,
+        this.playerBody.position.y - 0.5,
+        this.playerBody.position.z
+      );
       this.playerGroup.position.copy(this.state.player.pos);
+
+      // World bounds - clamp physics body
+      if (this.playerBody.position.x < -55 || this.playerBody.position.x > 55) {
+        this.playerBody.position.x = Math.max(-55, Math.min(55, this.playerBody.position.x));
+        this.playerBody.velocity.x = 0;
+      }
+      if (this.playerBody.position.z < -55 || this.playerBody.position.z > 55) {
+        this.playerBody.position.z = Math.max(-55, Math.min(55, this.playerBody.position.z));
+        this.playerBody.velocity.z = 0;
+      }
+
+      // Safety: reset if fallen through world
+      if (this.playerBody.position.y < -20) {
+        this.playerBody.position.set(-40, 5, -25);
+        this.playerBody.velocity.set(0, 0, 0);
+      }
+
+      // Bobbing only when grounded
+      if (this.canJump && move.lengthSq() > 0) {
+        this.playerGroup.position.y += Math.abs(Math.sin(t * 12)) * 0.03;
+      }
+    } else {
+      // === Fallback: non-physics movement (for tests) ===
+      if (move.lengthSq() > 0) {
+        move.normalize();
+
+        if (this.cameraMode === 'FIRST_PERSON') {
+          move.applyAxisAngle(this._scratch.yAxis, this.state.player.rot + Math.PI);
+        } else if (this.cameraMode === 'SHOULDER' || this.settings.cameraRelativeMovement) {
+          move.applyAxisAngle(this._scratch.yAxis, this.cameraAngle);
+        }
+
+        const newPos = this._scratch.newPos.copy(this.state.player.pos).addScaledVector(move, speed * dt);
+        this._handleHouseCollision(newPos);
+        newPos.x = Math.max(-55, Math.min(55, newPos.x));
+        newPos.z = Math.max(-55, Math.min(55, newPos.z));
+
+        // Terrain height
+        const terrainY = this._getTerrainHeight(newPos.x, newPos.z);
+        newPos.y = terrainY + 0.5;
+
+        this.state.player.pos.copy(newPos);
+        this.playerGroup.position.copy(this.state.player.pos);
+      }
+
+      this.playerGroup.position.y += Math.abs(Math.sin(t * 12)) * 0.05;
     }
 
-    // Bobbing animation
-    this.playerGroup.position.y = Math.abs(Math.sin(t * 12)) * 0.05;
-
-    // Rotation (aiming) - non-FPS modes
-    if (this.cameraMode !== 'FIRST_PERSON') {
+    // Rotation (aiming) - non-FPS/SHOULDER modes
+    if (this.cameraMode !== 'FIRST_PERSON' && this.cameraMode !== 'SHOULDER') {
       const dir = this._scratch.dir.subVectors(this.state.aim, this.state.player.pos).setY(0);
       if (dir.lengthSq() > 0.01) {
         this.state.player.rot = Math.atan2(dir.x, dir.z);
         this.playerGroup.rotation.y = this.state.player.rot;
       }
-    } else {
+    } else if (this.cameraMode === 'FIRST_PERSON') {
       this.playerGroup.rotation.y = this.state.player.rot;
     }
 
@@ -1902,9 +2083,14 @@ export class GameEngine {
 
       // Move zombie
       tk.pos.addScaledVector(dir, speed * dt);
+
+      // Terrain height adjustment
+      const terrainY = this._getTerrainHeight(tk.pos.x, tk.pos.z);
+      tk.pos.y = terrainY + 0.5;
+
       tk.mesh.position.copy(tk.pos);
       tk.mesh.lookAt(targetPos);
-      tk.mesh.position.y = Math.abs(Math.sin(t * 10)) * 0.5;
+      tk.mesh.position.y = tk.pos.y + Math.abs(Math.sin(t * 10)) * 0.5;
 
       // Attack logic (use final target for attack checks)
       this._handleZombieAttack(tk, finalTarget, targetIsHouse, dt);
@@ -2041,6 +2227,17 @@ export class GameEngine {
       if (p.splash > 0 && (hits.length > 0 || p.life > 2)) {
         this._createExplosion(p.mesh.position.clone(), p.splash);
         this._applySplashDamage(p.mesh.position, p.splash, p.dmg * 0.5);
+        this._removeProjectile(p, false);
+        continue;
+      }
+
+      // Terrain collision check
+      const pTerrainY = this._getTerrainHeight(p.mesh.position.x, p.mesh.position.z);
+      if (p.mesh.position.y < pTerrainY + 0.5) {
+        if (p.splash > 0) {
+          this._createExplosion(p.mesh.position.clone(), p.splash);
+          this._applySplashDamage(p.mesh.position, p.splash, p.dmg * 0.5);
+        }
         this._removeProjectile(p, false);
         continue;
       }
@@ -2232,7 +2429,7 @@ export class GameEngine {
     const bodyGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 10);
     const bodyMesh = new THREE.Mesh(
       bodyGeo,
-      new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.95 })
+      new THREE.MeshStandardMaterial({ color: stats.body, emissive: 0x003300, roughness: 0.95 })
     );
     bodyMesh.position.y = 0.65;
     bodyMesh.scale.setScalar(s);
@@ -2240,7 +2437,7 @@ export class GameEngine {
     group.add(bodyMesh);
 
     // Legs
-    const legMat = new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.95 });
+    const legMat = new THREE.MeshStandardMaterial({ color: stats.body, emissive: 0x003300, roughness: 0.95 });
     [-0.12, 0.12].forEach(x => {
       const leg = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.1, 0.5, 6),
@@ -2261,7 +2458,7 @@ export class GameEngine {
     group.add(headMesh);
 
     // Arms (hanging down zombie-style)
-    const armMat = new THREE.MeshStandardMaterial({ color: stats.body, roughness: 0.95 });
+    const armMat = new THREE.MeshStandardMaterial({ color: stats.body, emissive: 0x003300, roughness: 0.95 });
     [-0.35, 0.35].forEach((x, i) => {
       const arm = new THREE.Mesh(
         new THREE.CylinderGeometry(0.06, 0.08, 0.5, 6),
@@ -2430,6 +2627,34 @@ export class GameEngine {
 
       // Update aim for FPS mode
       this.state.aim.copy(headPos).addScaledVector(lookDir, 30);
+    } else if (this.cameraMode === 'SHOULDER') {
+      // Over-the-shoulder: Close 3rd person behind player
+      if (this.playerGroup) this.playerGroup.visible = true;
+
+      // Calculate "back" direction from camera quaternion
+      const back = this._scratch.lookDir.set(0, 0, 1).applyQuaternion(this.camera.quaternion);
+
+      const idealPos = this._scratch.lookTarget
+        .copy(this.state.player.pos)
+        .add(this._scratch.newPos.set(0, this.settings.shoulderHeight, 0))
+        .add(back.multiplyScalar(this.settings.shoulderDistance));
+
+      // Smooth follow
+      this.camera.position.lerp(idealPos, 0.2);
+
+      // Look at player head area
+      const lookTarget = this._scratch.headPos
+        .copy(this.state.player.pos)
+        .add(this._scratch.move.set(0, 1.5, 0));
+      this.camera.lookAt(lookTarget);
+
+      // Screen shake
+      if (this.state.shakeDuration > 0) {
+        this.state.shakeDuration -= dt;
+        const shake = this.state.shakeIntensity;
+        this.camera.position.x += (Math.random() - 0.5) * shake * 0.3;
+        this.camera.position.y += (Math.random() - 0.5) * shake * 0.2;
+      }
     } else if (this.cameraMode === 'TOPDOWN') {
       // Show player in other modes
       if (this.playerGroup) this.playerGroup.visible = true;
@@ -2447,7 +2672,7 @@ export class GameEngine {
       // Show player in isometric mode
       if (this.playerGroup) this.playerGroup.visible = true;
 
-      // Isometric (Default): Follow player with offset + Rotation + Pan
+      // Isometric: Follow player with offset + Rotation + Pan
       const dist = 40 * this.zoom;
       const height = 32 * this.zoom;
 
@@ -2766,6 +2991,8 @@ export class GameEngine {
     const type = this.state.placingTurret;
     const stats = TurretTypes[type];
     const pos = this.turretPreview.position.clone();
+    // Adjust turret Y to sit on terrain
+    pos.y = this._getTerrainHeight(pos.x, pos.z) + 0.5;
 
     // Validate placement
     const validation = this._validateTurretPlacement(pos);
@@ -2812,7 +3039,7 @@ export class GameEngine {
 
     const base = new THREE.Mesh(
       new THREE.CylinderGeometry(0.6, 0.7, 0.3, 12),
-      new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0x4A3528, roughness: 0.9 })
     );
     base.position.y = 0.15;
     base.castShadow = true;
@@ -3122,7 +3349,13 @@ export class GameEngine {
     this.state.placingTurret = null;
     this.state.placementFeedback = null;
     this.state.placementCursor = null;
-    this.state.player.pos.set(-40, 0, -25);  // Near house in corner
+    this.state.player.pos.set(-40, 0, -25);
+    // Reset physics body position
+    if (this.playerBody) {
+      this.playerBody.position.set(-40, 5, -25);
+      this.playerBody.velocity.set(0, 0, 0);
+      this.canJump = false;
+    }
     this.state.player.health = 100;
     this.state.player.maxHealth = 100;
     this.state.player.isInside = false;
@@ -3323,6 +3556,15 @@ export class GameEngine {
     if (document.pointerLockElement) {
       document.exitPointerLock();
     }
+
+    // Dispose physics
+    if (this.physicsWorld) {
+      while (this.physicsWorld.bodies.length > 0) {
+        this.physicsWorld.removeBody(this.physicsWorld.bodies[0]);
+      }
+      this.physicsWorld = null;
+    }
+    this.playerBody = null;
 
     // Dispose Three.js resources
     if (this.scene) {

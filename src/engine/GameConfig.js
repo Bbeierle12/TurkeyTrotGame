@@ -26,12 +26,12 @@ export const WeaponTypes = {
 };
 
 export const ZombieTypes = {
-  STANDARD: { name: 'Walker', hp: 35, speed: 1.0, damage: 8, value: 10, scale: 1.0, body: 0x4a5a4a, head: 0x6b7b6b },
-  RUNNER: { name: 'Sprinter', hp: 22, speed: 1.8, damage: 6, value: 12, scale: 0.8, body: 0x3a4a3a, head: 0x5a6a5a },
-  TANK: { name: 'Brute', hp: 120, speed: 0.6, damage: 20, value: 30, scale: 1.4, body: 0x2a3a2a, head: 0x4a5a4a },
-  HEALER: { name: 'Necromancer', hp: 40, speed: 0.9, damage: 5, value: 20, scale: 0.9, body: 0x4a2a6a, head: 0x8a5aaa, heals: true },
-  SPLITTER: { name: 'Bloater', hp: 60, speed: 1.0, damage: 12, value: 25, scale: 1.1, body: 0x5a6a3a, head: 0x7a8a5a, splits: true },
-  BOSS: { name: 'Overlord', hp: 800, speed: 0.5, damage: 40, value: 200, scale: 2.2, body: 0x2a1a2a, head: 0x4a2a4a, phases: 3 }
+  STANDARD: { name: 'Walker', hp: 35, speed: 1.0, damage: 8, value: 10, scale: 1.0, body: 0x2ECC71, head: 0x27AE60 },
+  RUNNER: { name: 'Sprinter', hp: 22, speed: 1.8, damage: 6, value: 12, scale: 0.8, body: 0x25A25A, head: 0x1E8C4E },
+  TANK: { name: 'Brute', hp: 120, speed: 0.6, damage: 20, value: 30, scale: 1.4, body: 0x1A7A3A, head: 0x2ECC71 },
+  HEALER: { name: 'Necromancer', hp: 40, speed: 0.9, damage: 5, value: 20, scale: 0.9, body: 0x8E44AD, head: 0xAB69C6, heals: true },
+  SPLITTER: { name: 'Bloater', hp: 60, speed: 1.0, damage: 12, value: 25, scale: 1.1, body: 0x3DD68C, head: 0x58D68D, splits: true },
+  BOSS: { name: 'Overlord', hp: 800, speed: 0.5, damage: 40, value: 200, scale: 2.2, body: 0x8E44AD, head: 0x7D3C98, phases: 3 }
 };
 
 export const HouseUpgrades = {

@@ -244,8 +244,8 @@ export default function HomesteadSiege() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [cameraMode, setCameraModeState] = useState('ISOMETRIC');
-  const cameraModeRef = useRef('ISOMETRIC');
+  const [cameraMode, setCameraModeState] = useState('SHOULDER');
+  const cameraModeRef = useRef('SHOULDER');
 
   // Wrapper to update both state and ref
   const setCameraMode = (mode) => {
@@ -384,7 +384,7 @@ export default function HomesteadSiege() {
       if (InputBindings.ability.rage.includes(e.code)) engine.useAbility('RAGE');
       if (InputBindings.ability.repair.includes(e.code)) engine.useAbility('REPAIR');
       if (InputBindings.camera.cycleMode.includes(e.code)) {
-        const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
+        const modes = ['SHOULDER', 'ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
         const currentMode = cameraModeRef.current;
         const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
         setCameraMode(nextMode);
@@ -432,7 +432,7 @@ export default function HomesteadSiege() {
 
   const placingTurretName = activePlacingTurret ? TurretTypes[activePlacingTurret]?.name : null;
   const handleCycleCamera = useCallback(() => {
-    const modes = ['ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
+    const modes = ['SHOULDER', 'ISOMETRIC', 'TOPDOWN', 'FIRST_PERSON'];
     const currentMode = cameraModeRef.current;
     const nextMode = modes[(modes.indexOf(currentMode) + 1) % modes.length];
     setCameraMode(nextMode);

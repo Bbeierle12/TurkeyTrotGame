@@ -193,7 +193,7 @@ describe('GameEngine', () => {
     });
 
     it('should initialize default camera settings', () => {
-      expect(engine.cameraMode).toBe('ISOMETRIC');
+      expect(engine.cameraMode).toBe('SHOULDER');
       expect(engine.zoom).toBe(1.0);
       expect(engine.cameraAngle).toBe(Math.PI); // Camera behind player
       expect(engine.pointerLocked).toBe(false);
